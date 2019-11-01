@@ -6,14 +6,13 @@
 
 @include ess-defs.texi
 @node General Information
-@comment  node-name,  next,  previous,  up
 @chapter General Information: README
 @cindex README
 
 This is the README file for the distribution of ESS version
 @include ../VERSION
 
-ESS is a GNU Emacs and XEmacs mode for interactive statistical
+ESS is a GNU Emacs package for interactive statistical
 programming and data analysis.  Languages supported: the S family (S,
 S-PLUS and R), SAS, BUGS/JAGS and Stata.  ESS grew out of the
 desire for bug fixes and extensions to S-mode and SAS-mode as well as a
@@ -71,19 +70,14 @@ Table of Contents
 @end menu
 
 @node License, Installation, General Information, General Information
-@comment  node-name,  next,  previous,  up
 @section License
-
 @include license.texi
 
-@c    vvvvvvvvvvvv node name  *must* match the one in ./ess.texi !
 @node Installation, Starting up, License, General Information
-@comment  node-name,  next,  previous,  up
 @section Installation
 @include installation.texi
 
 @node Starting up, Current Features, Installation, General Information
-@comment  node-name,  next,  previous,  up
 @section Starting an ESS process
 To start an @Sl{} session on Unix or on Windows when you
 use the Cygwin bash shell, simply type @kbd{M-x S RET}.
@@ -92,31 +86,26 @@ To start an @Sl{} session on Windows when you
 use the MSDOS prompt shell, simply type @kbd{M-x S+6-msdos RET}.
 
 @node Current Features, New Features, Starting up, General Information
-@comment  node-name,  next,  previous,  up
 @section Current Features
 
 @include currfeat.texi
 
 @node New Features, Reporting Bugs, Current Features, General Information
-@comment  node-name,  next,  previous,  up
 @section New Features
 
 @include newfeat.texi
 
 @node Reporting Bugs, Mailing Lists, New Features, General Information
-@comment  node-name,  next,  previous,  up
 @section Reporting Bugs
 
 @include bugrept.texi
 
 @node Mailing Lists, Authors, Reporting Bugs, General Information
-@comment  node-name,  next,  previous,  up
 @section Mailing Lists
 
 @include mailing.texi
 
 @node Authors,  , Mailing Lists, General Information
-@comment  node-name,  next,  previous,  up
 @section Authors
 
 @include authors.texi

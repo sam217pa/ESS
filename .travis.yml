@@ -1,8 +1,12 @@
 language: emacs-lisp
 env:
-  - EVM_EMACS=emacs-24.3-travis
+  # When there's a new major Emacs release, also update
+  # byte-compile-error-on-warn to the new release, below
+  - EVM_EMACS=emacs-25.1-travis
   - EVM_EMACS=emacs-25.3-travis
   - EVM_EMACS=emacs-26.1-travis
+  - EVM_EMACS=emacs-26.2-travis
+  - EVM_EMACS=emacs-26.3-travis
   - EVM_EMACS=emacs-git-snapshot-travis
 
 before_install:
@@ -34,5 +38,11 @@ before_script:
 script:
 - emacs --version
 - R --version
-- make all
-- make test
+- cd lisp; make julia-mode.elc
+- cd ..
+- make -C test -k all
+- make -C doc ../README
+# Create package.el-installable tar file, test that it installs
+# successfully:
+- make package
+- emacs --script targets/travis-install-package.el

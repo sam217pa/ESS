@@ -1,4 +1,4 @@
-;;; ess-bugs-d.el --- ESS[BUGS] dialect
+;;; ess-bugs-d.el --- ESS[BUGS] dialect  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2008-2011 Rodney Sparapani
 
@@ -26,11 +26,7 @@
 (require 'ess-bugs-l)
 (require 'ess-utils)
 (require 'ess-inf)
-(require 'ess-custom)
-(require 'ess)
-
-(setq auto-mode-alist
-      (append '(("\\.[bB][uU][gG]\\'" . ess-bugs-mode)) auto-mode-alist))
+(require 'ess-mode)
 
 (defvar ess-bugs-command "OpenBUGS" "Default BUGS program in PATH.")
 (make-local-variable 'ess-bugs-command)
@@ -122,7 +118,7 @@
                                                             ))
 
                                 (if (equal ".bmd" suffix) (let
-                                                              ((ess-bugs-temp-chains "") (ess-bugs-temp-monitor "") (ess-bugs-temp-chain ""))
+                                                              ((ess-bugs-temp-chains "") (ess-bugs-temp-monitor ""))
 
                                                             (if bugs-chains (setq ess-bugs-chains bugs-chains))
                                                             (if bugs-monitor (setq ess-bugs-monitor bugs-monitor))
@@ -193,7 +189,7 @@
                                 ))
   )
 
-(defun ess-bugs-na-bmd (bugs-command bugs-chains)
+(defun ess-bugs-na-bmd (bugs-command)
   "ESS[BUGS]: Perform the Next-Action for .bmd."
                                         ;(ess-save-and-set-local-variables)
   (if (equal 0 (buffer-size)) (ess-bugs-switch-to-suffix ".bmd")
@@ -246,23 +242,14 @@
   )
 
 ;;;###autoload
-(defun ess-bugs-mode ()
-  "ESS[BUGS]: Major mode for BUGS."
-  (interactive)
-  (kill-all-local-variables)
-  (ess-setq-vars-local '((comment-start . "#")))
-  (setq major-mode 'ess-bugs-mode)
-  (setq mode-name "ESS[BUGS]")
-  (use-local-map ess-bugs-mode-map)
-  (make-local-variable 'font-lock-defaults)
+(define-derived-mode ess-bugs-mode ess-mode "ESS[BUGS]"
+  "Major mode for BUGS."
+  (setq-local comment-start "#")
   (setq font-lock-defaults '(ess-bugs-font-lock-keywords nil t))
   (setq ess-language "S") ; mimic S for ess-smart-underscore
-  (run-mode-hooks 'ess-bugs-mode-hook)
-
   (unless (when (fboundp 'w32-shell-dos-semantics)
             (w32-shell-dos-semantics))
-    (add-hook 'comint-output-filter-functions 'ess-bugs-exit-notify-sh))
-  )
+    (add-hook 'comint-output-filter-functions 'ess-bugs-exit-notify-sh)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.[Bb][Uu][Gg]\\'" . ess-bugs-mode))
@@ -304,7 +291,6 @@
 
                                        (replace-match ess-temp-replacement-string))))))
 
-(setq features (delete 'ess-bugs-d features))
 (provide 'ess-bugs-d)
 
 ;;; ess-bugs-d.el ends here

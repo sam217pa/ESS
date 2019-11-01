@@ -34,17 +34,42 @@
 
 ;;; Autoloads:
 
-(require 'comint)
 (require 'shell)
-(require 'executable)
 (require 'ess-sas-l)
 
+(defcustom SAS-mode-hook nil
+  "Hook to run when entering SAS mode."
+  :type 'hook
+  :group 'ess-sas)
+
 (defvar inferior-SAS-args "-stdio -linesize 80 -noovp -nosyntaxcheck"
-  "*Arguments to use for starting SAS.")
+  "Arguments to use for starting SAS.")
 
 (defvar inferior-SAS-args-temp nil
   "Hack variable, needed for args preprocessing.
 Better logic needed!  (see 2 uses, in this file).")
+
+(defvar SAS-mode-syntax-table
+  (let ((tab (make-syntax-table)))
+    (modify-syntax-entry ?\\ "."  tab)  ;; backslash is punctuation
+    (modify-syntax-entry ?+  "."  tab)
+    (modify-syntax-entry ?-  "."  tab)
+    (modify-syntax-entry ?=  "."  tab)
+    (modify-syntax-entry ?%  "w"  tab)
+    (modify-syntax-entry ?<  "."  tab)
+    (modify-syntax-entry ?>  "."  tab)
+    (modify-syntax-entry ?&  "w"  tab)
+    (modify-syntax-entry ?|  "."  tab)
+    (modify-syntax-entry ?\' "\"" tab)
+    (modify-syntax-entry ?*  ". 23"  tab) ; comment character
+    (modify-syntax-entry ?\; "."  tab)
+    (modify-syntax-entry ?_  "w"  tab)
+    (modify-syntax-entry ?<  "."  tab)
+    (modify-syntax-entry ?>  "."  tab)
+    (modify-syntax-entry ?/  ". 14"  tab) ; comment character
+    (modify-syntax-entry ?.  "w"  tab)
+    tab)
+  "Syntax table for `SAS-mode'.")
 
 (defun ess-SAS-pre-run-hook (temp-ess-dialect)
   "Set up log and list files for interactive SAS."
@@ -157,8 +182,6 @@ Better logic needed!  (see 2 uses, in this file).")
   '((ess-local-customize-alist     . 'SAS-customize-alist)
     (ess-language                  . "SAS")
     (ess-dialect                   . "SAS")
-    (ess-mode-editing-alist        . SAS-editing-alist) ; from ess-sas-l.el
-    (ess-mode-syntax-table         . SAS-syntax-table)
     (inferior-ess-program          . inferior-SAS-program)
     (ess-help-sec-regex            . "^[A-Z. ---]+:$")
     (ess-help-sec-keys-alist       . " ")
@@ -170,7 +193,6 @@ Better logic needed!  (see 2 uses, in this file).")
     (inferior-ess-primary-prompt   . "^")
     (inferior-ess-secondary-prompt . "^")
     (comint-use-prompt-regexp      . t)
-    (inferior-ess-start-file       . nil) ;"~/.ess-SAS")
     (inferior-ess-start-args       . inferior-SAS-args-temp)
     ;; (ess-pre-run-hook              . 'ess-SAS-pre-run-hook)
     ;; (ess-local-process-name        . nil)
@@ -180,15 +202,27 @@ Better logic needed!  (see 2 uses, in this file).")
 ;;; The functions of interest (mode, inferior mode)
 
 ;;;###autoload
-(defun SAS-mode (&optional proc-name)
-  "Major mode for editing SAS source.  See ess-mode for more help."
-  (interactive)
-  (setq ess-customize-alist SAS-customize-alist)
-  (ess-mode SAS-customize-alist proc-name)
-
+(define-derived-mode SAS-mode ess-mode "[SAS]"
+  "Major mode for editing SAS source.  See `ess-mode' for more help."
+  :group 'ess-sas
+  (ess-setq-vars-local SAS-customize-alist)
+  (setq ess-local-customize-alist SAS-customize-alist)
+  (setq-local sentence-end ";[\t\n */]*")
+  (setq-local paragraph-start "^[ \t]*$")
+  (setq-local paragraph-separate "^[ \t]*$")
+  (setq-local paragraph-ignore-fill-prefix t)
+  (setq-local adaptive-fill-mode nil)
+  (setq-local indent-line-function 'sas-indent-line)
+  (setq-local comment-start "/*")
+  (setq-local comment-start-skip "/[*]")
+  (setq-local comment-end "*/")
+  (setq-local comment-end-skip "[*]/")
+  (setq-local comment-column 40)
+  (setq-local ess-local-process-name nil)
+  (setq-local tab-stop-list ess-sas-tab-stop-list)
+  (setq-local font-lock-keywords-case-fold-search t)
   ;; Local map settings, AFTER initialization (only if not yet defined)
-  (if sas-mode-local-map
-      nil
+  (unless sas-mode-local-map
     (setq sas-mode-local-map (copy-keymap (current-local-map)))
     (ess-sas-edit-keys-set ess-sas-edit-keys-toggle)
     (if ess-sas-local-unix-keys (ess-sas-local-unix-keys))
@@ -196,7 +230,7 @@ Better logic needed!  (see 2 uses, in this file).")
     (if ess-sas-global-unix-keys (ess-sas-global-unix-keys))
     (if ess-sas-global-pc-keys (ess-sas-global-pc-keys)))
   (define-key sas-mode-local-map ";" 'ess-electric-run-semicolon)
-
+  (define-key sas-mode-local-map (kbd "\C-c\C-w") 'ess-multi-frame-SAS)
   ;; this is a mess
   ;; interactive and batch commands share sas-mode-local-map,
   ;; but the associated commands are very different
@@ -216,14 +250,9 @@ Better logic needed!  (see 2 uses, in this file).")
 
   (use-local-map sas-mode-local-map)
 
-  (set (make-local-variable 'font-lock-defaults)
-       ;; KEYWORDS KEYWORDS-ONLY CASE-FOLD .....
-       '(SAS-mode-font-lock-defaults nil t))
-  ;;                                    ^^ this  *should* set
-  ;; font-lock-keywords-case-fold-search, but it fails for Emacs 22.[23]
-  ;; hence :
-  (setq font-lock-keywords-case-fold-search t)
-  (run-mode-hooks 'SAS-mode-hook))
+  (setq font-lock-defaults
+        ;; KEYWORDS KEYWORDS-ONLY CASE-FOLD .....
+        '(SAS-mode-font-lock-defaults nil t)))
 
 
 ;;;###autoload
@@ -245,7 +274,7 @@ Better logic needed!  (see 2 uses, in this file).")
                                                                 (bolp)))))
                                                   (progn
                                                     (insert last-command-event)
-                                                    (ess-indent-line)
+                                                    (funcall indent-line-function)
                                                     (save-excursion
                                                       (if insertpos (goto-char (1+ insertpos)))
                                                       (delete-char -1))))
@@ -255,7 +284,6 @@ Better logic needed!  (see 2 uses, in this file).")
                                                     (self-insert-command (prefix-numeric-value arg)))
                                                 (self-insert-command (prefix-numeric-value arg))))))
 
-;;;###autoload
 (defun SAS-menu ()
   "Start SAS from the menu."
   (interactive)
@@ -267,7 +295,6 @@ Better logic needed!  (see 2 uses, in this file).")
 (defun SAS ()
   "Call 'SAS', from SAS Institute."
   (interactive)
-  (setq-default ess-customize-alist SAS-customize-alist)
   (let* ((temp-dialect "SAS")) ;(cdr (rassoc ess-dialect SAS-customize-alist))))
     (ess-write-to-dribble-buffer
      (format "(SAS): ess-dial=%s, temp-dial=%s\n"
@@ -275,10 +302,12 @@ Better logic needed!  (see 2 uses, in this file).")
              temp-dialect))
     (ess-SAS-pre-run-hook temp-dialect)
     (setq ess-eval-visibly-p nil)
-    (inferior-ess)
-    (with-current-buffer "*SAS*"
-      (use-local-map sas-mode-local-map))))
-
+    ;; FIXME: `inferior-SAS-args' is defined from
+    ;; `inferior-SAS-args-temp' in `ess-SAS-pre-run-hook'
+    (let ((inf-buf (inferior-ess nil SAS-customize-alist)))
+      (with-current-buffer inf-buf
+        (use-local-map sas-mode-local-map))
+      inf-buf)))
 
 (defun ess-multi-frame-SAS ()
   "Put running SAS buffers into separate frames.
@@ -298,14 +327,8 @@ their own frames."
   (with-current-buffer "*SAS.lst*"
     (make-frame)))
 
-
-(add-hook 'ess-mode-hook
-          (lambda ()
-            (when (string= ess-language "SAS") ;; e.g. not for R-only users
-              (local-set-key "\C-c\C-w" 'ess-multi-frame-SAS))))
-
 (defun ess-num-or-zero (arg)
-  "*If a number, then return that number, otherwise return 0."
+  "If a number, then return that number, otherwise return 0."
   (or (and (numberp arg) arg) 0))
 
  ; Provide package

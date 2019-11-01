@@ -1,4 +1,4 @@
-;;; ess-s-lang.el --- Support for editing S source code
+;;; ess-s-lang.el --- Support for editing S source code  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1989-1997 D. Bates, Kademan, Ritter, D.M. Smith, K. Hornik,
 ;;      R.M. Heiberger, M. Maechler, and A.J. Rossini.
@@ -32,12 +32,11 @@
 
  ; Requires and autoloads
 
-(require 'ess)
+(require 'ess-mode)
 (require 'ess-help)
-(require 'ess-utils)
 (require 'ess-inf)
 
-(autoload 'speedbar-add-supported-extension "speedbar.el")
+(declare-function speedbar-add-supported-extension "speedbar" (extension))
 
  ; Configuration variables
 
@@ -75,16 +74,10 @@
   '((paragraph-start              . (concat "\\s-*$\\|" page-delimiter))
     (paragraph-separate           . (concat "\\s-*$\\|" page-delimiter))
     (paragraph-ignore-fill-prefix . t)
-    (require-final-newline        . mode-require-final-newline)
     ;;(comment-indent-function  . 'S-comment-indent)
     ;;(ess-comment-indent           . 'S-comment-indent)
-    ;;(ess-indent-line                      . 'S-indent-line)
     ;;(ess-calculate-indent           . 'ess-calculate-indent)
-    (indent-line-function         . 'ess-indent-line)
-    (parse-sexp-ignore-comments   . t)
-    (ess-style                    . ess-default-style)
     ;;(ess-keep-dump-files          . 'ask)
-    (ess-mode-syntax-table        . S-syntax-table)
     ;; For Changelog add, require ' ' before <- : "attr<-" is a function name :
     (add-log-current-defun-header-regexp . "^\\(.+\\)\\s-+<-[ \t\n]*function"))
   "General options for S and S+ source files.")
@@ -111,7 +104,6 @@
     ;; (inferior-ess-secondary-prompt . "[+:] ") ;; catch Selection: and alike
     (inferior-ess-secondary-prompt . "+ ") ;; catch Selection: and alike
     (comment-start                . "#")
-    (ess-imenu-generic-expression  . ess-imenu-S-generic-expression)
     (comment-add                  . 1)
     (comment-start-skip           . "#+ *")
     (comment-use-syntax           . t)  ; see log for bug report 2013-06-07
@@ -120,23 +112,18 @@
     ;; inferior-ess-prompt is used by comint for navigation, only if
     ;; comint-use-prompt-regexp is t; (transcript-mode also relies on this regexp)
     (inferior-ess-prompt           . inferior-S-prompt)
-    (ess-get-help-topics-function  . #'ess-s-get-help-topics-function)
     (ess-getwd-command          . "getwd()\n")
     (ess-setwd-command          . "setwd('%s')\n")
     (ess-funargs-command        . ".ess_funargs(\"%s\")\n")
     (fill-nobreak-predicate     . 'ess-inside-string-p)
-    (normal-auto-fill-function  . 'ess-do-auto-fill)
     (ess-execute-screen-options-command . "options(width=%d, length=99999)\n")
-    (inferior-ess-font-lock-keywords . 'inferior-S-font-lock-keywords)
-    (ess-font-lock-keywords       . 'ess-S-font-lock-keywords)
     (font-lock-defaults           . '(ess-build-font-lock-keywords
                                       nil nil ((?\. . "w") (?\_ . "w")))))
-  "S-language common settings for all <dialect>-customize-alist s")
+  "S-language common settings for all <dialect>-customize-alist.")
 
 (defconst S+common-cust-alist
   (append
    '((ess-suffix                . "S")
-     (ess-mode-syntax-table     . S-syntax-table)
      (ess-help-sec-regex        . ess-help-S+-sec-regex)
      (ess-help-sec-keys-alist   . ess-help-S+sec-keys-alist)
      (ess-change-sp-regexp      . ess-S+-change-sp-regexp)
@@ -157,7 +144,7 @@
      (ess-editor . S-editor)
      (ess-pager  . S-pager))
    S-common-cust-alist)
-  "Common settings for all S+<*>-customize-alist s"
+  "Common settings for all S+<*>-customize-alist."
   )
 
 ;;; Changes from S to S-PLUS 3.x.  (standard S3 should be in ess-s-lang!).
@@ -215,7 +202,7 @@
   "Help section keys for S4.")
 
 
-(defconst ess-help-S+-sec-regex "^[A-Z. ---]+:$"
+(defconst ess-help-S+-sec-regex "^[A-Z.]+:$"
   "Reg(ular) Ex(pression) of section headers in help file.")
 
  ; Function Definitions
@@ -234,185 +221,10 @@
       (max (if (bolp) 0 (1+ (current-column)))
            comment-column))))
 
-;; VS: these are ess-indent-line and ess-calculate-indent from 2004 already,so
-;; commented out to avoid confusion:
-
-;; (defun S-indent-line ()
-;;   "Indent current line as S code.
-;; Return the amount the indentation changed by."
-;;   (let ((indent (S-calculate-indent nil))
-;;      beg shift-amt
-;;      (case-fold-search nil)
-;;      (pos (- (point-max) (point))))
-;;     (beginning-of-line)
-;;     (setq beg (point))
-;;     (cond ((eq indent nil)
-;;         (setq indent (current-indentation)))
-;;        (t
-;;         (skip-chars-forward " \t")
-;;         (cond ((and ess-indent-with-fancy-comments ;; ### or #!
-;;                     (or (looking-at "###")
-;;                         (and (looking-at "#!") (= 1 (line-number-at-pos)))))
-;;                (setq indent 0))
-;;               ;; Single # comment
-;;               ((and ess-indent-with-fancy-comments
-;;                     (looking-at "#") (not (looking-at "##")))
-;;                (setq indent comment-column))
-;;               (t
-;;                (if (eq indent t) (setq indent 0))
-;;                (if (listp indent) (setq indent (car indent)))
-;;                (cond ((and (looking-at "else\\b")
-;;                            (not (looking-at "else\\s_")))
-;;                       (setq indent (save-excursion
-;;                                      (ess-backward-to-start-of-if)
-;;                                      (+ ess-else-offset (current-indentation)))))
-;;                      ((= (following-char) ?})
-;;                       (setq indent
-;;                             (+ indent
-;;                                (- ess-close-brace-offset ess-indent-offset))))
-;;                      ((= (following-char) ?{)
-;;                       (setq indent (+ indent ess-brace-offset))))))))
-;;     (skip-chars-forward " \t")
-;;     (setq shift-amt (- indent (current-column)))
-;;     (if (zerop shift-amt)
-;;      (if (> (- (point-max) pos) (point))
-;;          (goto-char (- (point-max) pos)))
-;;       (delete-region beg (point))
-;;       (indent-to indent)
-;;       ;; If initial point was within line's indentation,
-;;       ;; position after the indentation.
-;;       ;; Else stay at same point in text.
-;;       (if (> (- (point-max) pos) (point))
-;;        (goto-char (- (point-max) pos))))
-;;     shift-amt))
-
-;; (defun S-calculate-indent (&optional parse-start)
-;;   "Return appropriate indentation for current line as S code.
-;; In usual case returns an integer: the column to indent to.
-;; Returns nil if line starts inside a string, t if in a comment."
-;;   (save-excursion
-;;     (beginning-of-line)
-;;     (let ((indent-point (point))
-;;        (beginning-of-defun-function nil) ;; don't call ess-beginning-of-function
-;;        (case-fold-search nil)
-;;        state
-;;        containing-sexp)
-;;       (if parse-start
-;;        (goto-char parse-start)
-;;      (beginning-of-defun))
-;;       (while (< (point) indent-point)
-;;      (setq parse-start (point))
-;;      (setq state (parse-partial-sexp (point) indent-point 0))
-;;      (setq containing-sexp (car (cdr state))))
-;;       (cond ((or (nth 3 state) (nth 4 state))
-;;           ;; return nil or t if should not change this line
-;;           (nth 4 state))
-;;          ((null containing-sexp)
-;;           ;; Line is at top level.  May be data or function definition,
-;;           (beginning-of-line)
-;;           (if (and (/= (following-char) ?\{)
-;;                    (save-excursion
-;;                      (ess-backward-to-noncomment (point-min))
-;;                      (ess-continued-statement-p)))
-;;               ess-continued-statement-offset
-;;             0))   ; Unless it starts a function body
-;;          ((/= (char-after containing-sexp) ?{)
-;;           ;; line is expression, not statement:
-;;           ;; indent to just after the surrounding open.
-;;           (goto-char containing-sexp)
-;;           (let ((bol (save-excursion (beginning-of-line) (point))))
-
-;;             ;; modified by shiba@isac 7.3.1992
-;;             (cond ((and (numberp ess-expression-offset)
-;;                         (re-search-backward "[ \t]*expression[ \t]*" bol t))
-;;                    ;; This regexp match every "expression".
-;;                    ;; modified by shiba
-;;                    ;;(forward-sexp -1)
-;;                    (beginning-of-line)
-;;                    (skip-chars-forward " \t")
-;;                    ;; End
-;;                    (+ (current-column) ess-expression-offset))
-;;                   ((and (numberp ess-arg-function-offset)
-;;                         (re-search-backward
-;;                          "=[ \t]*\\s\"?\\(\\w\\|\\s_\\)+\\s\"?[ \t]*"
-;;                          bol
-;;                          t))
-;;                    (forward-sexp -1)
-;;                    (+ (current-column) ess-arg-function-offset))
-;;                   ;; "expression" is searched before "=".
-;;                   ;; End
-
-;;                   (t
-;;                    (progn (goto-char (1+ containing-sexp))
-;;                           (current-column))))))
-;;          (t
-;;           ;; Statement level.  Is it a continuation or a new statement?
-;;           ;; Find previous non-comment character.
-;;           (goto-char indent-point)
-;;           (ess-backward-to-noncomment containing-sexp)
-;;           ;; Back up over label lines, since they don't
-;;           ;; affect whether our line is a continuation.
-;;           (while (eq (preceding-char) ?\,)
-;;             (ess-backward-to-start-of-continued-exp containing-sexp)
-;;             (beginning-of-line)
-;;             (ess-backward-to-noncomment containing-sexp))
-;;           ;; Now we get the answer.
-;;           (if (ess-continued-statement-p)
-;;               ;; This line is continuation of preceding line's statement;
-;;               ;; indent  ess-continued-statement-offset  more than the
-;;               ;; previous line of the statement.
-;;               (progn
-;;                 (ess-backward-to-start-of-continued-exp containing-sexp)
-;;                 (+ ess-continued-statement-offset (current-column)
-;;                    (if (save-excursion (goto-char indent-point)
-;;                                        (skip-chars-forward " \t")
-;;                                        (eq (following-char) ?{))
-;;                        ess-continued-brace-offset 0)))
-;;             ;; This line starts a new statement.
-;;             ;; Position following last unclosed open.
-;;             (goto-char containing-sexp)
-;;             ;; Is line first statement after an open-brace?
-;;             (or
-;;               ;; If no, find that first statement and indent like it.
-;;               (save-excursion
-;;                 (forward-char 1)
-;;                 (while (progn (skip-chars-forward " \t\n")
-;;                               (looking-at "#"))
-;;                   ;; Skip over comments following openbrace.
-;;                   (forward-line 1))
-;;                 ;; The first following code counts
-;;                 ;; if it is before the line we want to indent.
-;;                 (and (< (point) indent-point)
-;;                      (current-column)))
-;;               ;; If no previous statement,
-;;               ;; indent it relative to line brace is on.
-;;               ;; For open brace in column zero, don't let statement
-;;               ;; start there too.  If ess-indent-offset is zero, use
-;;               ;; ess-brace-offset + ess-continued-statement-offset
-;;               ;; instead.
-;;               ;; For open-braces not the first thing in a line,
-;;               ;; add in ess-brace-imaginary-offset.
-;;               (+ (if (and (bolp) (zerop ess-indent-offset))
-;;                      (+ ess-brace-offset ess-continued-statement-offset)
-;;                    ess-indent-offset)
-;;                  ;; Move back over whitespace before the openbrace.
-;;                  ;; If openbrace is not first nonwhite thing on the line,
-;;                  ;; add the ess-brace-imaginary-offset.
-;;                  (progn (skip-chars-backward " \t")
-;;                         (if (bolp) 0 ess-brace-imaginary-offset))
-;;                  ;; If the openbrace is preceded by a parenthesized exp,
-;;                  ;; move to the beginning of that;
-;;                  ;; possibly a different line
-;;                  (progn
-;;                    (if (eq (preceding-char) ?\))
-;;                        (forward-sexp -1))
-;;                    ;; Get initial indentation of the line we are on.
-;;                    (current-indentation))))))))))
-
 ;;*;; S/R  Pretty-Editing
 
 (defun ess-fix-comments (&optional dont-query verbose)
-  "Fix ess-mode buffer so that single-line comments start with at least '##',
+  "Fix buffer so that single-line comments start with at least '##',
 and ensure space before subsequent text."
   (interactive "P")
   (ess-replace-regexp-dump-to-src "#\\([A-Za-z0-9]\\)" "# \\1" nil verbose)
@@ -420,20 +232,21 @@ and ensure space before subsequent text."
                                   "\\1#\\2" dont-query verbose))
 
 (defun ess-dump-to-src (&optional dont-query verbose)
-  "Make the changes in an S - dump() file to improve human readability."
+  "Make the change in an S - dump() file to improve human readability.
+Optional arguments DONT-QUERY and VERBOSE are passed to
+`ess-replace-regexp-dump-to-src'."
   (interactive "P")
-  (ess-mode)
   (ess-replace-regexp-dump-to-src  "^\"\\([a-z.][a-z.0-9]*\\)\" *<-\n"
                                    "\n\\1 <- "
                                    dont-query verbose))
 
 (defun ess-num-var-round (&optional dont-query verbose)
-  "Is VERY useful for dump(.)'ed numeric variables; ROUND some of them by
-  replacing  endings of 000000*.. and 999999*.  Martin Maechler"
+  "Round endings like 000000 and 99999.
+Optional argument DONT-QUERY means do not query.
+Optional argument VERBOSE gives more verbose output."
   (interactive "P")
   (save-excursion
     (goto-char (point-min))
-
     (let ((num 0)
           (str "")
           (rgxp "000000+[1-9]?[1-9]?\\>")
@@ -441,7 +254,6 @@ and ensure space before subsequent text."
       (if dont-query
           (ess-rep-regexp     rgxp to nil nil verbose)
         (query-replace-regexp rgxp to nil))
-
       (while (< num 9)
         (setq str (concat (int-to-string num) "999999+[0-8]*"))
         (if (and (numberp verbose) (> verbose 1))
@@ -452,7 +264,8 @@ and ensure space before subsequent text."
         (setq num (1+ num))))))
 
 (defun ess-fix-dot (before-chars &optional dont-query verbose)
-  "Remove trailing decimal '.' (\"dot\"), before BEFORE; typically from S-plus"
+  "Remove trailing decimal '.' (\"dot\"), before BEFORE-CHARS.
+Optional argument DONT-QUERY and VERBOSE get passed to `ess-replace-regexp-dump-to-src'."
   ;; typically, before-chars =  "]:" or more
   (ess-replace-regexp-dump-to-src
    (concat "\\([0-9]\\)\\.\\( *[" before-chars "]\\)")
@@ -467,7 +280,7 @@ in cases where it's ugly and nonsense.  DO-QUERY(prefix) asks before replacing."
 
 (defun ess-fix-dot-more (&optional dont-query verbose)
   "Remove trailing decimal '.' (\"dot\", typically from S+) in more cases
- than `ess-fix-dot-1'."
+than `ess-fix-dot-1'."
   (interactive "P")
   (ess-fix-dot-1 nil verbose)
   (ess-fix-dot ",)" dont-query verbose))
@@ -484,7 +297,6 @@ nil (as by default) !"
   (ess-replace-regexp-dump-to-src
    "^\\( *[a-z.][_a-z.0-9]*\\) *= *\\(function *(\\)"
    "\\1 <- \\2" dont-query verbose)
-
   (unless not-all
     ;; "too" aggressive {proposing to replace function argument specs}:
     (ess-replace-regexp-dump-to-src ;; all those *not* ending in ","
@@ -492,26 +304,24 @@ nil (as by default) !"
      ;; but not `names(x) = "..."' for that is "confused" with plot(x=x,..)
      "^\\( *[a-z.][][, \"_a-z.0-9]*\\) *= *\\([a-z.0-9({]\\(.*[^,]\\)? *$\\)"
      "\\1 <- \\2" nil ;; always query - often has many "false positives"
-     verbose)
-    ))
+     verbose)))
 
 ;;; All of the above three :
 (defun ess-MM-fix-src (&optional dont-query verbose)
   "Clean up ess-source code which has been produced by dump(..), and other
 code typically produced by other tools.  Produces more readable code,
-and one that is well formatted in emacs ess-mode."
+and one that is well formatted in Emacs ess-mode."
   (interactive "P")
   ;; each of the following does a save-excursion:
   (ess-dump-to-src dont-query)
   (ess-fix-comments dont-query)
   (ess-num-var-round dont-query verbose)
   (ess-fix-dot-more dont-query verbose)
-  (ess-fix-EQ-assign dont-query verbose 'not-all)
-  )
+  (ess-fix-EQ-assign dont-query verbose 'not-all))
 
 (defun ess-fix-miscellaneous (&optional from verbose)
   "Fix Miscellaneous S/R `ill-formation's from current \\[point].
- Particularly use \"<-\"and put spaces around operators."
+Particularly use \"<-\"and put spaces around operators."
   (interactive "d\nP"); Defaults: point and prefix (C-u)
   ;; activate by (setq ess-verbose t)
   (ess-if-verbose-write
@@ -603,9 +413,9 @@ keypress to repeat it, so if it is bound to \"C-c C-=\" pressing
 (defun ess-insert-assign (arg)
   "Insert the first element of `ess-assign-list' unless in string or comment.
 If the character before point is the first element of
-`ess-assign-list', replace it with the last character typed. If
-`ess-smart-S-assign-key' is nil, do `self-insert-command' using
-ARG as the number of times to insert."
+`ess-assign-list', replace it with the last character typed.
+
+If `ess-language' is not \"S\", call `self-insert-command' with ARG."
   (interactive "p")
   (if (string= ess-language "S")
       (let* ((assign (car ess-assign-list))
@@ -620,185 +430,91 @@ ARG as the number of times to insert."
               (t (insert assign))))
     (funcall #'self-insert-command arg)))
 
-(defun ess-smart-S-assign (arg)
-  "Insert `ess-smart-S-assign-key'.
-Please use `ess-insert-assign'."
-  (interactive "p")
-  (with-no-warnings                   ; Obsolete key variable
-    (if ess-smart-S-assign-key
-        (ess-insert-assign arg)
-      (self-insert-command arg))))
-
-(make-obsolete 'ess-smart-S-assign 'ess-insert-assign "ESS 18.10")
-
-(defun ess-disable-smart-S-assign (&rest _ignore)
-  "Disable `ess-insert-assign'."
-  (declare (obsolete "Use ess-smart-S-assign-key instead." "ESS 18.10"))
-  (with-no-warnings                   ; Obsolete key variable
-    (setq ess-smart-S-assign-key nil)))
+;; In case people had this in their config don't cause errors:
+(define-obsolete-function-alias 'ess-smart-S-assign 'ess-insert-assign "ESS 18.10")
+(define-obsolete-function-alias 'ess-disable-smart-S-assign #'ignore "ESS 18.10")
 
 (defun ess-add-MM-keys ()
-  "Define MM's user keys, currently \\<ess-mode-map>\\[ess-insert-function-outline], and
- \\<inferior-ess-mode-map>\\[ess-execute-screen-options]."
-  (interactive)
-  (require 'ess); typically unnecessary
-  (require 'ess-inf); dito
-  (define-key inferior-ess-mode-map "\C-cw" 'ess-execute-screen-options)
+  "Define MM's user keys."
+  (declare (obsolete "Setup your own keybindings." "ESS 19.04"))
+  (define-key inferior-ess-mode-map "\C-cw" #'ess-execute-screen-options)
+  (define-key ess-mode-map          [?\M--] #'ess-insert-assign)
+  (define-key inferior-ess-mode-map [?\M--] #'ess-insert-assign))
 
-  ;; Make M-- : [Alt] + [-] (in addition to / instead of  "_" = (on US-keyboard) [Shift]+ [-]
-  ;; Note this overwrites 'M--' as "negative argument" (still on 'C--'):
-  (define-key ess-mode-map          [?\M--] 'ess-insert-assign)
-  (define-key inferior-ess-mode-map [?\M--] 'ess-insert-assign)
-  )
-
-
-(defun ess-dump-args-and-go (Sfunc) ; &optional buff)
+(defun ess-dump-args-and-go (Sfunc)
   "Dump the function name, with arguments, to a buffer for editing.
 
 Currently, this needs to:
    1. set the buffer to the right mode, with the right settings
    2. format the statement,
    3. c/function/Sfunc/
-and I need to relearn emacs lisp (but I had to, anyway."
-
+and I need to relearn Emacs lisp (but I had to, anyway."
   (interactive "sFunction ? ")
-  (let* ((buffname "ess-complete.R")
-         (buf (ess-execute (format "args(%s)" Sfunc) t buffname)))
-    (pop-to-buffer buf)
-    (message "here yet?")
+  (declare (obsolete 'ess-execute "ESS 19.04"))
+  (let* ((buffname "ess-complete.R"))
+    (ess-execute (format "args(%s)" Sfunc) t buffname)
+    (pop-to-buffer (concat "*" buffname "*"))
     (while (search-forward "function" nil t)
       (replace-match Sfunc nil t))
-    (ess-setq-vars-local ess-customize-alist); (current-buffer))
-    (setq major-mode 'ess-mode)
-    (use-local-map ess-mode-map)
-    (set-syntax-table ess-mode-syntax-table)
-    ))
-
-(defun ess-chm-display-help-on-object (object &rest args)
-  (ess-eval-linewise (concat "help(" object ")")))
-
+    (when (fboundp 'ess-r-mode)
+      (ess-r-mode))))
 
 ;;; S imenu support
 
 ;; don't use syntax classes, bad for etags
 (defvar ess-imenu-S-generic-expression
-  '(("Functions" "^\\(.+\\)[ \t\n]*<-[ \t\n]*function[ ]*(" 1)
+  '(("Functions" "^\\([^ \t\n]+\\)[ \t\n]*\\(?:<-\\|=\\)[ \t\n]*function[ ]*(" 1)
     ("Classes" "^.*setClass(\\(.*\\)," 1)
     ("Coercions" "^.*setAs(\\([^,]+,[^,]*\\)," 1) ; show from and to
     ("Generics" "^.*setGeneric(\\([^,]*\\)," 1)
     ("Methods" "^.*set\\(Group\\|Replace\\)?Method(\\([^,]+,[^,]*\\)" 2)
-    ;;[ ]*\\(signature=\\)?(\\(.*,?\\)*\\)," 1)
-    ;;
-    ;;("Other" "^\\(.+\\)\\s-*<-[ \t\n]*[^\\(function\\|read\\|.*data\.frame\\)]" 1)
-    ("Package" "^.*\\(library\\|require\\)(\\(.*\\)" 2)
-    ("Data" "^\\(.+\\)[ \t\n]-*<-[ \t\n]*\\(read\\|.*data\.frame\\).*(" 1)))
+    ("Package" "^.*\\(library\\|require\\)(\\([^)]*\\)" 2)
+    ("Data" "^\\(.+\\)[ \t\n]-*\\(?:<-\\|=\\)[ \t\n]*\\(read\\|.*data\\.frame\\).*(" 1))
+  "Imenu generic expression for S modes.
+See `imenu-generic-expression'.")
 
-(defun ess-imenu-S (&optional arg)
-  "S Language Imenu support for ESS."
-  (interactive)
-  (setq imenu-generic-expression ess-imenu-generic-expression)
+(defun ess-imenu-S (&optional _arg)
+  "S Language Imenu support for ESS.
+ARG is ignored."
+  (declare (obsolete "It is set automatically in major modes" "ESS 19.04"))
   (imenu-add-to-menubar "Imenu-S"))
 
-(defalias 'ess-imenu-R 'ess-imenu-S)
+(define-obsolete-function-alias 'ess-imenu-R 'ess-imenu-S "ESS 19.04")
 
 
  ;;; Speedbar stuff.
-(defun ess-S-initialize-speedbar ()
-  "Extend to all extensions; see initialization, and edit."
-  (speedbar-add-supported-extension ".R")
-  (speedbar-add-supported-extension ".S")
-  (speedbar-add-supported-extension ".s")
-  (speedbar-add-supported-extension ".q"))
 
-                                        ;(if (featurep 'speedbar)
-                                        ;    (progn
-                                        ;      (message "enabling speedbar support")
-                                        ;      (require 'speedbar)
-                                        ;      (ess-S-initialize-speedbar)))
+(eval-after-load "speedbar"
+  '(progn
+     (speedbar-add-supported-extension ".R")
+     (speedbar-add-supported-extension ".S")
+     (speedbar-add-supported-extension ".s")
+     (speedbar-add-supported-extension ".q")))
 
-(eval-when-compile
-  (condition-case nil
-      (progn
-        (require 'speedbar)
-        (when (featurep 'speedbar)
-
-          (defun S-speedbar-buttons (buffer)
-            "attempted hack."
-
-            ;;(speedbar-make-tag-line)
-            ;;(speedbar-insert-button)
-            (speedbar-with-writable))
-
-          (fset 'R-speedbar-buttons 'S-speedbar-buttons)
-
-          (defun S-speedbar-menu-items  ( )
-            "Need to write.")
-
-          (ess-S-initialize-speedbar)))
-    (error nil)))
-
-(defun ess-s-get-help-topics-function (name)
-  "Return a list of current S help topics associated with process NAME.
+(cl-defmethod ess-help-get-topics (proc &context (ess-dialect "R"))
+  "Return a list of current S help topics associated with process PROC.
 If 'sp-for-help-changed?' process variable is non-nil or
 `ess-help-topics-list' is nil, (re)-populate the latter and
 return it.  Otherwise, return `ess-help-topics-list'."
   (with-ess-process-buffer nil
-    (ess-write-to-dribble-buffer
-     (format "(ess-get-help-topics-list %s) .." name))
-    (when (fboundp 'ess-help-r--check-last-help-type)
-      (ess-help-r--check-last-help-type))
     (cond
      ;; (Re)generate the list of topics
      ((or (not ess-help-topics-list)
           (ess-process-get 'sp-for-help-changed?))
       (ess-process-put 'sp-for-help-changed? nil)
       (setq ess-help-topics-list
-            (ess-uniq-list
-             (append (ess-get-object-list name 'exclude-1st)
+            (delete-dups
+             (append (ess-get-object-list proc 'exclude-1st)
                      (ess-get-help-files-list)
                      (ess-get-help-aliases-list)))))
      (t
       ess-help-topics-list))))
 
-;;; On a PC, the default is S+.
-;; Elsewhere (unix and linux) the default is S+
-(cond  (ess-microsoft-p
-        ;; MS-Windows-------------------------------------------------
-
-        ;;        (fset 'S
-        ;;           (if (equal (file-name-nondirectory shell-file-name) "cmdproxy.exe")
-        ;;               'S+-msdos
-        ;;             'S+))
-        (defun S-by-icon (&rest x)
-          (interactive)
-          (message "Please start S+ from the icon.
- Then you can connect emacs to it with `M-x S-existing'.")
-          )
-        (fset 'S 'S-by-icon)
-        (fset 'S-existing
-              (if (equal (file-name-nondirectory shell-file-name) "cmdproxy.exe")
-                  'S+-msdos-existing
-                'S+-existing))
-        (fset 'Sqpe 'Sqpe+)
-        (fset 's-mode 'S+-mode)
-        (fset 's-transcript-mode 'S+-transcript-mode))
-
-       (t ;;((eq system-type 'gnu/linux)
-        ;; Linux etc (including Mac OSX !?) --------------------------
-        (fset 'S 'S+)
-        (fset 's-mode 'S+-mode)
-        (fset 's-transcript-mode 'S+-transcript-mode)))
-
-;;;;* Alias S-mode to s-mode
-;;; Emacs will set the mode for a file based on the file's header.
-;;; The mode name is indicated by putting it between -*- on the top line.
-;;; (Other commands can go here too, see an Emacs manual.)
-;;; For a file you also load, you will want a leading # (comment to S)
-;;; Emacs will downcase the name of the mode, e.g., S, so we must provide
-;;; s-mode in lower case too.  That is, "#-*- S-*-" invokes s-mode and
-;;; not S-mode.
-(fset 'S-transcript-mode 's-transcript-mode)
-(fset 'S-mode 's-mode)
+(defalias 'S 'S+)
+(defalias 's-mode 'S+-mode)
+(defalias 's-transcript-mode 'S+-transcript-mode)
+(defalias 'S-transcript-mode 's-transcript-mode)
+(defalias 'S-mode 's-mode)
 
 
 (define-obsolete-function-alias 'ess-toggle-S-assign-key #'ignore "ESS 18.10")

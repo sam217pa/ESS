@@ -128,7 +128,7 @@ other Emacsen, current versions only support GNU Emacs.
 
 There are two main ways of interacting with ESS: through ``regular''
 modes or ``inferior'' modes.  Regular modes act like normal Emacs major
-modes.  ESS major mods are displayed in the mode-line in the format
+modes.  ESS major modes are displayed in the mode-line in the format
 @code{ESS[dialect]}, where @code{dialect} can take values such as
 @code{R}, @code{SAS}, or @code{S}.
 
@@ -183,7 +183,7 @@ your R functions in specified source directories.
 @section Why should I use ESS?
 
 Statistical packages are powerful software systems for manipulating and
-analyzing data, but their user interfaces often leave something something
+analyzing data, but their user interfaces often leave something
 to be desired:  they offer weak editor functionality and they differ
 among themselves so markedly that you have to re-learn how to do those
 things for each package.  ESS is a package which is designed to make
@@ -356,6 +356,7 @@ statistical programs.
 * Multiple ESS processes::
 * ESS processes on Remote Computers::
 * Customizing startup::
+* Controlling buffer display::
 @end menu
 
 @node Starting up
@@ -536,11 +537,23 @@ variable is nil.
 
 @end enumerate
 
+@vindex ess-ask-for-ess-directory
+@vindex ess-pre-run-hook
 If @code{ess-ask-for-ess-directory} has a non-@code{nil} value (as it
 does by default) then the value determined by the above rules provides
 the default when prompting for the starting directory.  Incidentally,
 @code{ess-directory} is an ideal variable to set in
 @code{ess-pre-run-hook}.
+
+@vindex ess-post-run-hook
+You may also customize @code{ess-post-run-hook} and the
+dialect-specific @code{ess-*-post-run-hook} variables. For example,
+you may want to use @code{ess-load-file} to load a file when ESS
+starts R:
+
+@example
+(add-hook 'ess-r-post-run-hook (lambda () (ess-load-file "foo.R")))
+@end example
 
 If you like to keep a record of your R actions, set the variable
 @code{ess-ask-about-transfile} to @code{t}, and you will be asked for a
@@ -573,11 +586,85 @@ It is not normally necessary to pass arguments to the iESS program; in
 particular do not pass the @samp{-e} option to @code{Splus}, since ESS
 provides its own command history mechanism.
 
-By default, the new process will be displayed in the same window in the
-current frame.  If you wish your iESS process to appear in a separate
-frame, customize the variable @code{inferior-ess-own-frame}.
-Alternatively, change @code{inferior-ess-same-window} if you wish the
-process to appear within another window of the current frame.
+@vindex ess-auto-width
+@vindex ess-auto-width-visible
+
+ESS can set the width option of inferior processes automatically when
+the window configuration changes. To do so, set @code{ess-auto-width}
+to a non-nil value. By default, the change will not be shown in the
+inferior buffer. If you want it to be shown, set
+@code{ess-auto-width-visible} to a non-nil value.
+
+
+@node Controlling buffer display
+@section Controlling buffer display
+
+Users can control how buffers are displayed by customizing
+@code{display-buffer-alist}, @xref{Window Choice,,, emacs}. This
+section provides examples of how to achieve certain setups.
+
+Users coming from RStudio may want the R process to appear at the
+bottom left of the frame, help buffers to appear at the bottom right,
+and ess-rdired buffers at the top right. To achieve that, you could
+this. Note that the order matters; @code{*R Dired*} would match
+@code{*R} if it came before in the alist.
+
+@example
+(setq display-buffer-alist
+      `(("*R Dired"
+         (display-buffer-reuse-window display-buffer-in-side-window)
+         (side . right)
+         (slot . -1)
+         (window-width . 0.33)
+         (reusable-frames . nil))
+        ("*R"
+         (display-buffer-reuse-window display-buffer-at-bottom)
+         (window-width . 0.5)
+         (reusable-frames . nil))
+        ("*Help"
+         (display-buffer-reuse-window display-buffer-in-side-window)
+         (side . right)
+         (slot . 1)
+         (window-width . 0.33)
+         (reusable-frames . nil))))
+@end example
+
+Some users prefer working with multiple frames where one frame has the
+source code and the other frame has the inferior process. To achieve
+this, use this example. @xref{Buffer Display Action Alists,,,
+elisp} for a detailed description of @code{reusable-frames}.
+
+@example
+(setq display-buffer-alist
+      '(("*R"
+         (display-buffer-reuse-window display-buffer-pop-up-frame)
+         (reusable-frames . 0))))
+@end example
+
+Some users may want the process window to be dedicated to the process
+so that other buffers are not shown on top of that window.
+@xref{Dedicated Windows,,, elisp}. For example, this prevents help
+buffers from being displayed in the window showing the inferior R
+process.
+
+@example
+(setq display-buffer-alist
+      '(("*R"
+         nil
+         (dedicated . t))))
+@end example
+
+By default, ESS usually prefers splitting the frame into multiple
+windows so that you can work with both the R script and the R REPL
+visible at once. If you want to override this behavior so that the
+script buffer and the process buffer share the same window, you can do
+so like this:
+
+@example
+(setq display-buffer-alist
+      '(("*R" . ((display-buffer-same-window) (inhibit-same-window . nil)))
+        ("\\.R$" . ((display-buffer-same-window) (inhibit-same-window . nil)))))
+@end example
 
 @node Entering commands
 @chapter Interacting with the ESS process
@@ -1614,14 +1701,9 @@ The indentation commands provided by ESS are:
 
 Try to indent first, and if code is already properly indented, complete
 instead.  In ess-mode, only tries completion if
-@code{ess-tab-complete-in-script} is non-nil.  See also
+@code{tab-always-indent} is @code{'complete}.  See also
 @code{ess-first-tab-never-complete}.
 @end deffn
-
-@defvr {User Option} ess-tab-complete-in-script
-If non-@code{nil}, @kbd{TAB} in script buffers tries to complete if
-there is nothing to indent.
-@end defvr
 
 @defvr {User Option} ess-first-tab-never-complete
 If non-@code{nil}, @kbd{TAB} never tries to complete in ess-mode.  The
@@ -1685,14 +1767,14 @@ style allows you to use your own private values of the indentation
 variable, see below.
 @end deffn
 
-@defvr {User Option} ess-default-style
-The default value of @code{ess-style}.  See the variable
-@code{ess-style-alist} for how these groups (DEFAULT, OWN, GNU, RRR,
-@dots{}) map onto different settings for variables.  You can set this in
-your Emacs configuration file:
+@defvr {User Option} ess-style
+The style to use. See the variable @code{ess-style-alist} for how
+these groups (DEFAULT, OWN, GNU, RRR, @dots{}) map onto different
+settings for variables. You can set this in your Emacs configuration
+file:
 
 @example
-(setq ess-default-style 'C++)
+(setq ess-style 'C++)
 @end example
 @end defvr
 
@@ -1700,12 +1782,12 @@ your Emacs configuration file:
 Predefined formatting styles for ESS code.  Values for all groups,
 except OWN, are fixed.  To change the value of variables in the OWN
 group, customize the variable @code{ess-own-style-list}.  The default
-style in use is controlled by @code{ess-default-style}.
+style in use is controlled by @code{ess-style}.
 @end defvr
 
 The styles @code{DEFAULT} and @code{OWN} are initially identical.  If
 you wish to edit some of the default values, set
-@code{ess-default-style} to @code{'OWN} and change
+@code{ess-style} to @code{'OWN} and change
 @code{ess-own-style-list}.
 @xref{Customization}, for convenient ways to set both these variables.
 
@@ -1722,7 +1804,7 @@ In the rare case that you'd like to add an entire new indentation style
 of your own, copy the definition of @code{ess-own-style-list} to a new
 variable and ensure that the last line of the @code{:set} declaration
 calls @code{ess-add-style} with a unique name for your style
-(e.g. @code{'MINE}).  Finally, add @code{(setq ess-default-style 'MINE)}
+(e.g. @code{'MINE}).  Finally, add @code{(setq ess-style 'MINE)}
 to use your new style.
 
 @node Other edit buffer commands
@@ -2133,6 +2215,13 @@ frame.  If you wish help buffers to appear in their own frame (either
 one per help buffer, or one for all help buffers), you can customize the
 variable @code{ess-help-own-frame}.
 
+Help buffers are displayed by calling the function
+@code{ess-display-help}. You can customize where these buffers are
+displayed by adding an entry in @code{display-buffer-alist} (see
+@xref{Controlling buffer display,,, ess} for examples) or by customizing
+the options @code{ess-help-own-frame}, @code{ess-help-frame-alist},
+and @code{ess-display-buffer-reuse-frame}.
+
 @findex ess-quit
 @findex ess-cleanup
 @cindex temporary buffers
@@ -2143,7 +2232,6 @@ variable @code{ess-help-own-frame}.
 * Object names::
 * Function arguments::
 * Minibuffer completion::
-* Auto-complete::
 * Company::
 * Icicles::
 @end menu
@@ -2155,10 +2243,9 @@ variable @code{ess-help-own-frame}.
 @vindex ess-first-tab-never-complete
 
 The @key{TAB} key is for completion. The value of the variable
-@code{ess-first-tab-never-complete} controls when completion is allowed
-controls when completion is allowed to occur.  In @code{ess-mode}
-@key{TAB} first tries to indent, and if there is nothing to indent,
-complete the object name instead.
+@code{ess-first-tab-never-complete} controls when completion is allowed to
+occur. In @code{ess-mode} @key{TAB} first tries to indent, and if there is
+nothing to indent, complete the object name instead.
 
 @table @kbd
 @item TAB
@@ -2187,7 +2274,7 @@ pressing @kbd{TAB} yet again will complete the object name up to
 uniqueness, etc.  If you just wish to see what completions exist without
 adding any extra characters, type @kbd{M-?}.
 
-@deffn Command ess-list-object-completions
+@deffn Command ess-complete-object-name
 @kindex M-?
 @kbd{M-?} List all possible completions of the object name at point.
 @end deffn
@@ -2226,6 +2313,18 @@ completion also provides function arguments. If function is a generic,
 completion will provide all the arguments of @code{S3} methods known to
 @code{R}.
 
+@cindex Space in function argument completion
+In R versions newer than 2.14.1, ESS uses R's built-in completion
+engine and will honor its settings. You may read about them by issuing
+@code{?rc.options} at the prompt. For example, to have the equals sign
+for function arguments contain spaces on both sides (e.g.
+@code{lm(for)} suggests @code{formula = } rather than
+@code{formula=}), you can adjust @code{funarg.suffix}:
+
+@example
+utils::rc.options(funarg.suffix = " = ")
+@end example
+
 A related functionality is @xref{ESS ElDoc}, which displays function
 arguments in the echo area whenever the point is inside a function call.
 
@@ -2240,56 +2339,6 @@ and the value of @code{ess-use-ido} it @code{t} (the default). The
 completion command @code{ess-completing-read} falls back on classic
 @code{completion-read} interface if this feature is not available for
 whatever reason.
-
-@node Auto-complete
-@section Integration with auto-complete package
-@cindex auto-complete
-@vindex ac-source-R
-@vindex ac-source-R-args
-@vindex ac-source-R-objects
-ESS provides three sources for @code{Auto Completion} mode:
-@comment (@uref{http://cx4a.org/software/auto-complete/})
-@code{ac-source-R-args}, @code{ac-source-R-objects} and
-@code{ac-source-R}.  The last one combines the previous two and makes them
-play nicely together.  See auto-complete package documentation
-(@uref{http://cx4a.org/software/auto-complete/}) for how to modify and
-install your own completion sources.
-
-For the default auto-complete ESS configuration, install the latest
-version of @code{auto-complete} package. ESS automatically detect the
-package and activates auto-complete in ESS buffers.
-
-
-To deactivate AC, place the following into your init file:
-
-@example
-(setq ess-use-auto-complete nil)
-@end example
-
-Or, to activate auto-completion only in the @code{ess-mode} buffers:
-
-@example
-(setq ess-use-auto-complete 'script-only)
-@end example
-
-ESS provides AC help both for arguments and objects (default keys
-@kbd{C-?}  or @kbd{<f1>}). You can bind @kbd{M-h} to display quick help
-pop-ups:
-
-@example
-(define-key ac-completing-map (kbd "M-h") 'ac-quick-help)
-@end example
-
-@code{AC} binds @kbd{M-n}, and @kbd{M-p} for the navigation in the
-completion menu, which might be inconvenient if you want it to use in
-the inferior R. Bind it to something else:
-
-@example
-(define-key ac-completing-map "\M-n" nil) ;; was ac-next
-(define-key ac-completing-map "\M-p" nil) ;; was ac-previous
-(define-key ac-completing-map "\M-," 'ac-next)
-(define-key ac-completing-map "\M-k" 'ac-previous)
-@end example
 
 @node Company
 @section Company
@@ -2520,16 +2569,6 @@ insertions, even doing some of the typing for you (with Abbrev Mode),
 and by showing Rd keywords, strings, etc.@: in different faces (with
 Font Lock Mode).
 
-Note that R also accepts Rd files with extension @file{rd}; to activate
-@ESS{[Rd]} support for this extension, you may need to add
-
-@example
-(add-to-list 'auto-mode-alist '("\\.rd\\'" . Rd-mode))
-@end example
-
-@noindent
-to one of your Emacs startup files.
-
 In Rd mode, the following special Emacs commands can be used in addition
 to the standard Emacs commands.
 
@@ -2642,7 +2681,7 @@ The entry is immediately preceding the object to document and all lines
 start with the Roxygen prefix string, in this case @code{##'}. ESS
 provides support to edit these documentation entries by providing line
 filling, navigation, template generation etc. Syntax highlighting is
-provided for Emacs but not for XEmacs.
+provided.
 
 Roxygen is customized by the variables in the customization group ``Ess
 Roxy''. Customizables include the Roxygen prefix, use of folding
@@ -2731,9 +2770,9 @@ visibility of the Roxygen entry at point.
 @code{fill-paragraph} Fill the Roxygen field at point.
 
 @item C-a
-@findex move-beginning-of-line
-@code{move-beginning-of-line} Move to the point directly to the right of
-the Roxygen start string.
+@findex ess-roxy-move-beginning-of-line
+@code{ess-roxy-move-beginning-of-line} Move to the point directly to the right of
+the Roxygen start string. If already there, move to the beginning of the line.
 
 @item RET
 @findex newline-and-indent
@@ -2770,7 +2809,7 @@ and functions defined in .GlobalEnv can "see" objects in 'package:foo'
 environment. See also
 @uref{https://cran.r-project.org/doc/manuals/R-ints.html#Namespaces}.
 
-Ocasionally you want to evaluate into a package from a non-package file,
+Occasionally you want to evaluate into a package from a non-package file,
 or the other way around, evaluate into @code{GlobalEnv} from inside a
 package. In such cases @kbd{C-c C-t C-s} is your friend.
 
@@ -2795,7 +2834,7 @@ ESS has a few extra features, which didn't fit anywhere else.
 * Toolbar::                     Support for toolbar in ESS
 * Xref::                        Xref
 * Rdired::                      Directory editor for R objects
-* Rutils::                      R object/package management and help utilities
+* Package listing::             R object/package management and help utilities
 * Org::                         Interaction with Org mode
 * Sweave and AUCTeX::           Support for Sweave in ESS and AUCTeX
 @end menu
@@ -3093,55 +3132,32 @@ plot the object, `v' will view it, and `d' will mark the object for
 deletion (`x' will actually perform the deletion).
 
 
-@node Rutils
-@section Rutils
+@node Package listing
+@section Package listing
 
-Ess-rutils builds up on ess-rdired, providing key bindings for
-performing basic R functions in the inferior-ESS process buffer, such as
-loading and managing packages, object manipulation (listing, viewing,
-and deleting), and alternatives to @code{help.start()} and
-@code{RSiteSearch()} that use the @command{browse-url} Emacs function.
-The library can be loaded using @kbd{M-x load-file}, but the easiest is
-to include:
+ESS[R] provides several commands to list and manage packages and
+objects under the @code{C-c C-.} keymap:
 
-@lisp
-(require 'ess-rutils)
-@end lisp
-
-in your Emacs configuration file.  Once R is started with @kbd{M-x R}, and if the value of
-the customizable variable @code{ess-rutils-keys} is true, several key
-bindings become available in iESS process buffers:
-
-@deffn Command ess-rutils-local-pkgs
+@deffn Command ess-r-package-list-local-packages
 @kindex C-c C-. l
 @kbd{C-c C-. l} List all packages in all available libraries.
 @end deffn
 
-@deffn Command ess-rutils-repos-pkgs
+@deffn Command ess-r-package-list-available-packages
 @kindex C-c C-. r
 @kbd{C-c C-. r} List available packages from repositories listed by
 @command{getOptions(``repos'')} in the current R session.
 @end deffn
 
-@deffn Command ess-rutils-update-pkgs @var{lib} @var{repos}
+@deffn Command ess-r-package-update-packages @var{lib} @var{repos}
 @kindex C-c C-. u
 @kbd{C-c C-. u} Update packages in a particular library @var{lib} and
 repository @var{repos}.
 @end deffn
 
-@deffn Command ess-rutils-apropos
-@kindex C-c C-. a
-@kbd{C-c C-. a} Search for a string using apropos.
-@end deffn
-
 @deffn Command ess-rutils-rm-all
 @kindex C-c C-. m
 @kbd{C-c C-. m} Remove all R objects.
-@end deffn
-
-@deffn Command ess-rutils-objs
-@kindex C-c C-. o
-@kbd{C-c C-. o} Manipulate R objects; wrapper for @command{ess-rdired}.
 @end deffn
 
 @deffn Command ess-rutils-load-wkspc
@@ -3164,17 +3180,6 @@ repository @var{repos}.
 @kbd{C-c C-. H} Use @command{browse-url} to navigate R html
 documentation.
 @end deffn
-
-See the submenu @samp{Rutils} under the iESS menu for alternative access
-to these functions.  The function @command{ess-rutils-rsitesearch} is
-provided without a particular key binding.  This function is useful in
-any Emacs buffer, so can be bound to a user-defined key:
-
-@lisp
-(eval-after-load "ess-rutils"
-  '(global-set-key [(control c) (f6)] 'ess-rutils-rsitesearch))
-@end lisp
-@findex ess-rutils-rsitesearch
 
 Functions for listing objects and packages
 (@command{ess-rutils-local-pkgs}, @command{ess-rutils-repos-pkgs}, and
@@ -3203,8 +3208,16 @@ R process.  (This section contributed by Dan Davison and Eric Schulte.)
 @node Sweave and AUCTeX
 @section Support for Sweave in ESS and AUCTeX
 
+Libraries for literate data analysis are obsolete and not loaded by
+default. This includes @code{ess-noweb}, @code{ess-swv}, and related
+functionality like @code{Rnw-mode}. Users are encouraged to switch to
+one of several other packages that deal with these modes. For example,
+polymode @url{https://github.com/polymode/poly-R/},
+@url{https://polymode.github.io/}, or markdown-mode with edit-indirect
+@url{https://jblevins.org/projects/markdown-mode}.
+
 ESS provides support for writing and processing Sweave
-(@uref{https://www.statistik.lmu.de/~leisch/Sweave}), building up on
+(@uref{https://leisch.userweb.mwn.de/Sweave/}), building up on
 Emacs' ess-noweb-mode for literate programming.  When working on an Sweave
 document, the following key bindings are available:
 

@@ -3,70 +3,109 @@
 ## Before making changes here, please take a look at Makeconf
 include ./Makeconf
 
-## 'all' is the default target, i.e. 'make' and 'make all' are the same.
-.PHONY: all install uninstall
-all install uninstall: $(ETC_FILES)
-	cd lisp; $(MAKE) $@
-	cd doc; $(MAKE) $@
-	cd etc; $(MAKE) $@
+ESSVERSION := $(shell cat VERSION)
+PKGVERSION := $(shell sed -n 's/;; Version: *\(.*\) */\1/p' lisp/ess.el)
+ESSDIR := ess-$(ESSVERSION)
+ifneq ($(ESSVERSION), $(PKGVERSION))
+  $(shell sed -i 's/Version: .*/Version: $(ESSVERSION)/' VERSION)
+  ${shell sed -i 's/;; Version: .*/;; Version: $(ESSVERSION)/' lisp/ess.el}
+endif
+
+ESSR-VERSION := $(shell sed -n "s/;; ESSR-Version: *\(.*\) */\1/p" lisp/ess.el)
+
+.PHONY: all
+all: lisp doc etc autoloads
 
 .PHONY: version
 version:
 	@echo "********************* VERSIONS **************************"
 	@echo $(shell $(EMACS) --version | sed -n 1p)
 	@echo ESS $(ESSVERSION)
+	@echo ESSR $(ESSR-VERSION)
 	@echo "*********************************************************"
 
 .PHONY: lisp
 lisp: version
-	cd lisp; $(MAKE)
+	$(MAKE) -C lisp all
 
 .PHONY: doc
 doc: version
-	cd doc; $(MAKE)
+	$(MAKE) -C doc all
 
 .PHONY: etc
 etc: version
-	cd etc; $(MAKE)
+	$(MAKE) -C etc all
 
 .PHONY: test
 test: version
-	cd test; $(EMACS) --script run-tests
+	$(MAKE) -C test all
 
-generate-indent-cases:
-	cd test; $(EMACS) --script generate-indent-cases
+test-%: version
+	$(MAKE) -C test $*
 
 .PHONY: julia
 julia:
-	cd lisp; $(MAKE) julia-mode.el
+	@cd lisp; $(MAKE) julia-mode.el
 
 .PHONY: autoloads
 autoloads:
 	cd lisp; $(MAKE) ess-autoloads.el
 
-## the rest of the targets are for ESS developer's use only :
-
-## --- PRE-release ---
-
-# Create .tgz and .zip files only
-# GNUTAR=gtar make tarballs
-tarballs: $(ESSDIR)
+.PHONY: essr
+essr: VERSION
 	@echo "**********************************************************"
-	@echo "** Making distribution of ESS for (pre)release $(ESSVERSION) from $(ESSDIR)/"
-	@echo "** Making pdf and html documentation"
-	cd $(ESSDIR)/doc/ ; $(MAKE) pdf
-	cd $(ESSDIR)/doc/ ; $(MAKE) html
+	@echo "** Making ESSRv$(ESSR-VERSION) **"
+	@sed -i "s/^ *VERSION <- .*/    VERSION <- \"$(ESSR-VERSION)\"/" etc/ESSR/R/.load.R
+	cd etc/ESSR/; ./BUILDESSR; cd -
+	@git add etc/ESSR.rds lisp/ess.el etc/ESSR/R/.load.R
+	git commit -m"ESSR Version $(ESSR-VERSION)"
+	git tag "ESSRv"$(ESSR-VERSION)
+
+install: all
+	mkdir $(ESSDIR)
+	$(INSTALL) -R ./* $(ESSDIR)/
+
+uninstall:
+	rm -rf $(ESSDIR)
+
+
+## the rest of the targets are for ESS developer's use only :
+.PHONY: tarballs sign-tarballs
+TARBALLS = ess-$(ESSVERSION).tar ess-$(ESSVERSION).tgz ess-$(ESSVERSION).zip # TODO: ess-plus-$(VERSION).tar
+tarballs: $(TARBALLS)
+
+SIGNED_TARBALLS = $(addsuffix .sig, $(TARBALLS))
+sign-tarballs: $(SIGNED_TARBALLS)
+$(SIGNED_TARBALLS): $(TARBALLS)
+	@echo "Signing $@"
+	$(GPG) -ba -o $@ $<
+
+
+.PHONY: tgz
+tgz: ess-$(ESSVERSION).tgz
+ess-$(ESSVERSION).tgz: $(ESSDIR)
 	@echo "** Creating .tgz file **"
 	test -f $(ESSDIR).tgz && rm -rf $(ESSDIR).tgz || true
 	$(GNUTAR) hcvofz $(ESSDIR).tgz $(ESSDIR)
-	@echo "Signing tgz file"
-	$(GPG) -ba -o $(ESSDIR).tgz.sig $(ESSDIR).tgz
+
+.PHONY: zip
+zip: ess-$(ESSVERSION).zip
+ess-$(ESSVERSION).zip: $(ESSDIR)
 	@echo "** Creating .zip file **"
 	test -f $(ESSDIR).zip && rm -rf $(ESSDIR).zip || true
 	zip -r $(ESSDIR).zip $(ESSDIR)
-	@echo "Signing zip file"
-	$(GPG) -ba -o $(ESSDIR).zip.sig $(ESSDIR).zip
-	touch $@
+
+.PHONY: package
+package: ess-$(ESSVERSION).tar
+ess-$(ESSVERSION).tar:
+	@echo "Creating $@"
+	@rm -rf $(ESSDIR)
+	@git archive HEAD -o ess-$(ESSVERSION).tar
+	@mkdir ess-$(ESSVERSION)
+	@$(GNUTAR) -C ess-$(ESSVERSION) -xf ess-$(ESSVERSION).tar
+	@cd ess-$(ESSVERSION) && $(EMACS) -Q --script "targets/create-pkg-file.el"
+	@$(GNUTAR) c -f ess-$(ESSVERSION).tar ess-$(ESSVERSION)
+	@rm -rf ess-$(ESSVERSION)/
 
 # Create the "release" directory
 # run in the foreground so you can accept the certificate
@@ -76,29 +115,28 @@ $(ESSDIR): RPM.spec
 	$(MAKE) all
 #	remove previous ESSDIR, etc:
 	$(MAKE) cleanup-dist
-	@echo "**********************************************************"
-	@echo "** Making $(ESSDIR) directory of ESS for release $(ESSVERSION),"
-	@echo "** (must have setup git / github with cached authentication, prior for security)"
-	@echo "**********************************************************"
 	@echo "** Exporting Files **"
-	git clone git@github.com:emacs-ess/ESS.git $(ESSDIR)-git
+	git clone . $(ESSDIR)-git
 	mkdir -p $(ESSDIR)
 	(cd $(ESSDIR)-git; $(GNUTAR) cvf - --exclude=.git --exclude=.svn --no-wildcards .) | (cd $(ESSDIR); $(GNUTAR) xf - )
 	@echo "** Clean-up docs, Make docs, and Correct Write Permissions **"
 	CLEANUP="user-* useR-* Why_* README.*"; ED=$(ESSDIR)/doc; \
 	 if [ -d $$ED ] ; then CD=`pwd`; cd $$ED; chmod -R u+w $$CLEANUP; rm -rf $$CLEANUP; \
 	 $(MAKE) all cleanaux ; cd $$CD; fi
-#	just in case: update from VERSION:
-	cd lisp; $(MAKE) ess-custom.el; $(INSTALL) ess-custom.el ../$(ESSDIR)/lisp/; cd ..
+#   just in case: update from VERSION:
+	cd lisp; $(INSTALL) ess.el ../$(ESSDIR)/lisp/; cd ..
 	cd lisp; $(MAKE) julia-mode.el; $(INSTALL) julia-mode.el ../$(ESSDIR)/lisp/; cd ..
 	$(INSTALL) RPM.spec $(ESSDIR)/
 	chmod a-w $(ESSDIR)/lisp/*.el
 	chmod u+w $(ESSDIR)/lisp/ess-site.el $(ESSDIR)/Make* $(ESSDIR)/*/Makefile
 	touch $(ESSDIR)/etc/.IS.RELEASE
 #	# Get (the first 12 hexdigits of) the git version into the release tarball:
-	cut -c 1-12 $(ESSDIR)-git/.git/refs/heads/master > $(ESSDIR)/etc/git-ref
+	$(shell git-rev-parse master | cut -c 1-12 ) > $(ESSDIR)/etc/git-ref
 
 dist: VERSION tarballs
+	@echo "** Making pdf and html documentation"
+	@cd $(ESSDIR)/doc/ ; $(MAKE) pdf
+	@cd $(ESSDIR)/doc/ ; $(MAKE) html
 	grep -E 'defvar ess-(version|revision)' lisp/ess-custom.el \
 	  $(ESSDIR)/lisp/ess-custom.el > $@
 
@@ -117,12 +155,8 @@ cleanup-rel:
 %.spec: %.spec.in VERSION
 	sed 's/@@VERSION@@/$(ESSVERSION)/g' $< > $@
 
-
 ## --- RELEASE section ---
 
-## NB: Typically use  'make -W VERSION ChangeLog' before 'make rel' <<--- MUST
-##	since          ~~~~~~~~~~~~~~~~~~~~~~~~~
-## 	ChangeLog often ends up newer than VERSION
 ChangeLog: VERSION
 	@echo "** Adding log-entry to ChangeLog file"
 	mv ChangeLog ChangeLog.old
@@ -132,7 +166,6 @@ ChangeLog: VERSION
 	 cat ChangeLog.old ) > ChangeLog
 	@rm ChangeLog.old
 	git commit -m 'Version $(ESSVERSION)' ChangeLog
-
 
 tag:
 	@echo "** Tagging the release **  1) pull existing;  2) tag  3) push it"
@@ -179,10 +212,8 @@ buildrpm: dist
 builddeb:
 	dpkg-buildpackage -uc -us -rfakeroot -tc
 
-## Old Note (clean and distclean are now the same):
-## 'clean'     shall remove *exactly* those things that are *not* in version control
-## 'distclean' removes also things in VC (svn, when they are remade by "make"):
 clean distclean: cleanup-dist
+	rm -f ess-$(ESSVERSION).tar
 	cd etc; $(MAKE) $@
 	cd lisp; $(MAKE) $@
 	cd doc; $(MAKE) $@

@@ -1,17 +1,17 @@
+## This file is sourced when R starts and `load.ESSR` is called. See
+## inferior-ess-r-load-ESSR--local.
 ## Do not use _ in names, nor :: as they cannot be parsed in old R versions
 
 ## load .base.R and all other files into ESSR environment; then attach ESSR
-load.ESSR <- function(dir){
+.ess.load.ESSR <- function(dir) {
     .source <-
         if(any("keep.source" == names(formals(sys.source))))
             sys.source
         else
             function(..., keep.source) sys.source(...)
 
-    Rver <-
-        if(exists("getRversion", mode="function")) getRversion()
-        else paste(R.version$major, R.version$minor, sep=".")
-
+    Rver <- if(exists("getRversion", mode="function")) getRversion()
+            else paste(R.version$major, R.version$minor, sep=".")
     oldR <- Rver <= "1.3.0"
 
     ESSR <-
@@ -26,9 +26,9 @@ load.ESSR <- function(dir){
 
     assign(".ess.Rversion", Rver, envir = ESSR)
 
-    ESSRver <- scan(paste(dirname(dir), "/VERSION", sep = ""),
-                    what = "character", quiet = TRUE)
-    assign(".ess.ESSRversion", ESSRver, envir = ESSR)
+    ## updated by make !!
+    VERSION <- "1.5"
+    assign(".ess.ESSRversion", VERSION, envir = ESSR)
 
 
     ## .basic.R:
@@ -51,8 +51,3 @@ load.ESSR <- function(dir){
     ## BUILDESSR needs this:
     invisible(ESSR)
 }
-
-
-## Local Variables:
-## eval: (ess-set-style 'RRR t)
-## End:

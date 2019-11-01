@@ -33,11 +33,11 @@
 
 ;;; Code:
 
+(eval-when-compile
+  (require 'subr-x))
 (require 'cl-lib)
 (require 'compile)
-(require 'easymenu)
-(require 'eldoc)
-(require 'ess)
+(require 'ess-mode)
 (require 'ess-help)
 (require 'ess-s-lang)
 (require 'ess-roxy)
@@ -45,10 +45,36 @@
 (require 'ess-r-syntax)
 (require 'ess-r-package)
 (require 'ess-trns)
-(when (>= emacs-major-version 25) (require 'ess-r-xref)) ;; Xref API was added in Emacs 25.1
-;; TODO: Remove when we drop support for Emacs 24:
-(declare-function ess-r-xref-backend "ess-r-xref")
+(require 'ess-r-xref)
 (when (>= emacs-major-version 26) (require 'ess-r-flymake)) ; Flymake rewrite in Emacs 26
+
+(declare-function ess-rdired "ess-rdired" ())
+
+(define-obsolete-variable-alias 'R-mode-hook 'ess-r-mode-hook "19.04")
+(defcustom ess-r-mode-hook nil
+  "Hook run when entering `ess-r-mode'."
+  :options '(electric-layout-local-mode)
+  :type 'hook
+  :group 'ess-R)
+
+
+(defcustom ess-r-fetch-ESSR-on-remotes nil
+  "If non-nil, fetch ESSR from the GitHub repository.
+Otherwise source from local ESS installation. When 'ess-remote,
+fetch only with `ess-remote'. When t, always fetch from remotes.
+Change this variable when loading ESSR code on remotes fails
+systematically.
+
+Fetching happens once per new ESSR version. The archive is stored
+in ~/.config/ESSR/ folder. You can download and place it there
+manually if the remote has restricted network access."
+  :type '(choice (const nil :tag "Never")
+                 (const 'ess-remote :tag "With ess-remote only")
+                 (const t :tag "Always"))
+  :group 'ess-R)
+
+;; Silence the byte compiler
+(defvar add-log-current-defun-header-regexp)
 
 ;; TODO: Refactor so as to not rely on dynamic scoping.  After that
 ;; refactor, also remove the file-local-variable byte-compile-warnings
@@ -62,103 +88,125 @@
 (defvar offset)
 (defvar prefix-break)
 (defvar prev-containing-sexp)
-(defvar start)
 (defvar start-pos)
 (defvar style)
 (defvar type)
+
+(define-obsolete-variable-alias 'ess-r-versions 'ess-r-runner-prefixes "ESS 19.04")
+(defcustom ess-r-runner-prefixes
+  (let ((r-ver '("R-1" "R-2" "R-3" "R-devel" "R-patched")))
+    (if (eq system-type 'darwin) (append r-ver '("R32" "R64")) r-ver))
+  "List of partial strings for versions of R to access within ESS.
+Each string specifies the start of a filename. If a filename
+beginning with one of these strings is found on variable
+`exec-path', a command for that version of R is made available.
+For example, if the file \"R-1.8.1\" is found and this variable
+includes the string \"R-1\", a function called `R-1.8.1' will be
+available to run that version of R. If duplicate versions of the
+same program are found (which happens if the same path is listed
+on variable `exec-path' more than once), they are ignored by
+calling `delete-dups'. Set this variable to nil to disable
+searching for other versions of R. Setting this variable directly
+does not take effect; use either \\[customize-option] or set the
+value by using `ess-r-runners-reset'."
+  :group 'ess-R
+  :type '(repeat string)
+  :set #'ess-r-runners-reset
+  ;; Use `custom-initialize-default' since we call
+  ;; `ess-r-define-runners' at the end of this file directly.
+  :initialize #'custom-initialize-default)
 
 
 
 ;;*;; Mode definition
 
 ;;;*;;; UI (Keymaps / Menus)
-;;;###autoload
 (defvar ess-dev-map
   (let (ess-dev-map)
     (define-prefix-command 'ess-dev-map)
-    (define-key ess-dev-map "\C-s" 'ess-r-set-evaluation-env)
-    (define-key ess-dev-map "s" 'ess-r-set-evaluation-env)
-    (define-key ess-dev-map "T" 'ess-toggle-tracebug)
-    (define-key ess-dev-map "\C-l" 'ess-r-devtools-load-package)
-    (define-key ess-dev-map "l" 'ess-r-devtools-load-package)
-    (define-key ess-dev-map "`" 'ess-show-traceback)
-    (define-key ess-dev-map "~" 'ess-show-call-stack)
-    (define-key ess-dev-map "\C-w" 'ess-watch)
-    (define-key ess-dev-map "w" 'ess-watch)
-    (define-key ess-dev-map "\C-d" 'ess-debug-flag-for-debugging)
-    (define-key ess-dev-map "d" 'ess-debug-flag-for-debugging)
-    (define-key ess-dev-map "\C-u" 'ess-debug-unflag-for-debugging)
-    (define-key ess-dev-map "u" 'ess-debug-unflag-for-debugging)
-    (define-key ess-dev-map [(control ?D)] 'ess-debug-unflag-for-debugging)
-    (define-key ess-dev-map "\C-b" 'ess-bp-set)
-    (define-key ess-dev-map "b" 'ess-bp-set)
-    (define-key ess-dev-map [(control ?B)] 'ess-bp-set-conditional)
-    (define-key ess-dev-map "B" 'ess-bp-set-conditional)
-    (define-key ess-dev-map "\C-L" 'ess-bp-set-logger)
-    (define-key ess-dev-map "L" 'ess-bp-set-logger)
-    (define-key ess-dev-map "\C-o" 'ess-bp-toggle-state)
-    (define-key ess-dev-map "o" 'ess-bp-toggle-state)
-    (define-key ess-dev-map "\C-k" 'ess-bp-kill)
-    (define-key ess-dev-map "k" 'ess-bp-kill)
-    (define-key ess-dev-map "\C-K" 'ess-bp-kill-all)
-    (define-key ess-dev-map "K" 'ess-bp-kill-all)
-    (define-key ess-dev-map "\C-n" 'ess-bp-next)
-    (define-key ess-dev-map "n" 'ess-bp-next)
-    (define-key ess-dev-map "i" 'ess-debug-goto-input-event-marker)
-    (define-key ess-dev-map "I" 'ess-debug-goto-input-event-marker)
-    (define-key ess-dev-map "\C-p" 'ess-bp-previous)
-    (define-key ess-dev-map "p" 'ess-bp-previous)
-    (define-key ess-dev-map "\C-e" 'ess-debug-toggle-error-action)
-    (define-key ess-dev-map "e" 'ess-debug-toggle-error-action)
-    (define-key ess-dev-map "0" 'ess-electric-selection)
-    (define-key ess-dev-map "1" 'ess-electric-selection)
-    (define-key ess-dev-map "2" 'ess-electric-selection)
-    (define-key ess-dev-map "3" 'ess-electric-selection)
-    (define-key ess-dev-map "4" 'ess-electric-selection)
-    (define-key ess-dev-map "5" 'ess-electric-selection)
-    (define-key ess-dev-map "6" 'ess-electric-selection)
-    (define-key ess-dev-map "7" 'ess-electric-selection)
-    (define-key ess-dev-map "8" 'ess-electric-selection)
-    (define-key ess-dev-map "9" 'ess-electric-selection)
-    (define-key ess-dev-map "?" 'ess-tracebug-show-help)
+    (define-key ess-dev-map "\C-s" #'ess-r-set-evaluation-env)
+    (define-key ess-dev-map "s"    #'ess-r-set-evaluation-env)
+    (define-key ess-dev-map "T"    #'ess-toggle-tracebug)
+    (define-key ess-dev-map "\C-l" #'ess-r-devtools-load-package)
+    (define-key ess-dev-map "l"    #'ess-r-devtools-load-package)
+    (define-key ess-dev-map "`"    #'ess-show-traceback)
+    (define-key ess-dev-map "~"    #'ess-show-call-stack)
+    (define-key ess-dev-map "\C-w" #'ess-watch)
+    (define-key ess-dev-map "w"    #'ess-watch)
+    (define-key ess-dev-map "\C-d" #'ess-debug-flag-for-debugging)
+    (define-key ess-dev-map "d"    #'ess-debug-flag-for-debugging)
+    (define-key ess-dev-map "\C-u" #'ess-debug-unflag-for-debugging)
+    (define-key ess-dev-map "u"    #'ess-debug-unflag-for-debugging)
+    (define-key ess-dev-map ""   #'ess-debug-unflag-for-debugging)
+    (define-key ess-dev-map "\C-b" #'ess-bp-set)
+    (define-key ess-dev-map "b"    #'ess-bp-set)
+    (define-key ess-dev-map ""   #'ess-bp-set-conditional)
+    (define-key ess-dev-map "B"    #'ess-bp-set-conditional)
+    (define-key ess-dev-map "\C-L" #'ess-bp-set-logger)
+    (define-key ess-dev-map "L"    #'ess-bp-set-logger)
+    (define-key ess-dev-map "\C-o" #'ess-bp-toggle-state)
+    (define-key ess-dev-map "o"    #'ess-bp-toggle-state)
+    (define-key ess-dev-map "\C-k" #'ess-bp-kill)
+    (define-key ess-dev-map "k"    #'ess-bp-kill)
+    (define-key ess-dev-map "\C-K" #'ess-bp-kill-all)
+    (define-key ess-dev-map "K"    #'ess-bp-kill-all)
+    (define-key ess-dev-map "\C-n" #'ess-bp-next)
+    (define-key ess-dev-map "n"    #'ess-bp-next)
+    (define-key ess-dev-map "i"    #'ess-debug-goto-input-event-marker)
+    (define-key ess-dev-map "I"    #'ess-debug-goto-input-event-marker)
+    (define-key ess-dev-map "\C-p" #'ess-bp-previous)
+    (define-key ess-dev-map "p"    #'ess-bp-previous)
+    (define-key ess-dev-map "\C-e" #'ess-debug-toggle-error-action)
+    (define-key ess-dev-map "e"    #'ess-debug-toggle-error-action)
+    (define-key ess-dev-map "0"    #'ess-electric-selection)
+    (define-key ess-dev-map "1"    #'ess-electric-selection)
+    (define-key ess-dev-map "2"    #'ess-electric-selection)
+    (define-key ess-dev-map "3"    #'ess-electric-selection)
+    (define-key ess-dev-map "4"    #'ess-electric-selection)
+    (define-key ess-dev-map "5"    #'ess-electric-selection)
+    (define-key ess-dev-map "6"    #'ess-electric-selection)
+    (define-key ess-dev-map "7"    #'ess-electric-selection)
+    (define-key ess-dev-map "8"    #'ess-electric-selection)
+    (define-key ess-dev-map "9"    #'ess-electric-selection)
+    (define-key ess-dev-map "?"    #'ess-tracebug-show-help)
     ess-dev-map)
   "Keymap for commands related to development and debugging.")
 
 (defvar ess-r-package-check-map
   (let (ess-r-package-check-map)
     (define-prefix-command 'ess-r-package-check-map)
-    (define-key ess-r-package-check-map "\C-c" 'ess-r-devtools-check-package)
-    (define-key ess-r-package-check-map "c" 'ess-r-devtools-check-package)
-    (define-key ess-r-package-check-map "\C-w" 'ess-r-devtools-check-with-winbuilder)
-    (define-key ess-r-package-check-map "w" 'ess-r-devtools-check-with-winbuilder)
-    (define-key ess-r-package-check-map "h" 'ess-r-rhub-check-package)
+    (define-key ess-r-package-check-map "\C-c" #'ess-r-devtools-check-package)
+    (define-key ess-r-package-check-map "c"    #'ess-r-devtools-check-package)
+    (define-key ess-r-package-check-map "\C-w" #'ess-r-devtools-check-with-winbuilder)
+    (define-key ess-r-package-check-map "w"    #'ess-r-devtools-check-with-winbuilder)
+    (define-key ess-r-package-check-map "h"    #'ess-r-rhub-check-package)
     ess-r-package-check-map)
   "Keymap for R package checks.")
 
 (defvar ess-r-package-dev-map
   (let (ess-r-package-dev-map)
     (define-prefix-command 'ess-r-package-dev-map)
-    (define-key ess-r-package-dev-map "\C-s" 'ess-r-package-set-package)
-    (define-key ess-r-package-dev-map "s"    'ess-r-package-set-package)
-    (define-key ess-r-package-dev-map "\C-a" 'ess-r-devtools-ask)
-    (define-key ess-r-package-dev-map "a"    'ess-r-devtools-ask)
-    (define-key ess-r-package-dev-map "\C-e" 'ess-r-devtools-execute-command)
-    (define-key ess-r-package-dev-map "e"    'ess-r-devtools-execute-command)
-    (define-key ess-r-package-dev-map "\C-b" 'ess-r-devtools-build)
-    (define-key ess-r-package-dev-map "b"    'ess-r-devtools-build)
+    (define-key ess-r-package-dev-map "\C-s" #'ess-r-set-evaluation-env)
+    (define-key ess-r-package-dev-map "s"    #'ess-r-set-evaluation-env)
+    (define-key ess-r-package-dev-map "\C-a" #'ess-r-devtools-execute-command)
+    (define-key ess-r-package-dev-map "a"    #'ess-r-devtools-execute-command)
+    (define-key ess-r-package-dev-map "\C-e" #'ess-r-devtools-execute-command)
+    (define-key ess-r-package-dev-map "e"    #'ess-r-devtools-execute-command)
+    (define-key ess-r-package-dev-map "\C-b" #'ess-r-devtools-build)
+    (define-key ess-r-package-dev-map "b"    #'ess-r-devtools-build)
     (define-key ess-r-package-dev-map "\C-c" 'ess-r-package-check-map)
-    (define-key ess-r-package-dev-map "c" 'ess-r-package-check-map)
-    (define-key ess-r-package-dev-map "\C-d" 'ess-r-devtools-document-package)
-    (define-key ess-r-package-dev-map "d"    'ess-r-devtools-document-package)
-    (define-key ess-r-package-dev-map "g"    'ess-r-devtools-install-github)
-    (define-key ess-r-package-dev-map "\C-i" 'ess-r-devtools-install-package)
-    (define-key ess-r-package-dev-map "i"    'ess-r-devtools-install-package)
-    (define-key ess-r-package-dev-map "\C-l" 'ess-r-devtools-load-package)
-    (define-key ess-r-package-dev-map "l"    'ess-r-devtools-load-package)
-    (define-key ess-r-package-dev-map "\C-t" 'ess-r-devtools-test-package)
-    (define-key ess-r-package-dev-map "t"    'ess-r-devtools-test-package)
-    (define-key ess-r-package-dev-map "\C-u" 'ess-r-devtools-unload-package)
-    (define-key ess-r-package-dev-map "u"    'ess-r-devtools-unload-package)
+    (define-key ess-r-package-dev-map "c"    'ess-r-package-check-map)
+    (define-key ess-r-package-dev-map "\C-d" #'ess-r-devtools-document-package)
+    (define-key ess-r-package-dev-map "d"    #'ess-r-devtools-document-package)
+    (define-key ess-r-package-dev-map "g"    #'ess-r-devtools-install-github)
+    (define-key ess-r-package-dev-map "\C-i" #'ess-r-devtools-install-package)
+    (define-key ess-r-package-dev-map "i"    #'ess-r-devtools-install-package)
+    (define-key ess-r-package-dev-map "\C-l" #'ess-r-devtools-load-package)
+    (define-key ess-r-package-dev-map "l"    #'ess-r-devtools-load-package)
+    (define-key ess-r-package-dev-map "\C-t" #'ess-r-devtools-test-package)
+    (define-key ess-r-package-dev-map "t"    #'ess-r-devtools-test-package)
+    (define-key ess-r-package-dev-map "\C-u" #'ess-r-devtools-unload-package)
+    (define-key ess-r-package-dev-map "u"    #'ess-r-devtools-unload-package)
     ess-r-package-dev-map))
 
 (easy-menu-define ess-roxygen-menu nil
@@ -217,31 +265,30 @@
 (easy-menu-add-item inferior-ess-mode-menu nil ess-r-package-menu "end-dev")
 (easy-menu-add-item inferior-ess-mode-menu nil ess-tracebug-menu "end-dev")
 
+(defvar ess-r-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-=") #'ess-cycle-assign)
+    (define-key map "\M-?" #'ess-complete-object-name)
+    (define-key map (kbd "C-c C-.") 'ess-rutils-map)
+    map))
 
-;; Inherit from the S syntax table:
-(defvar ess-r-syntax-table (copy-syntax-table S-syntax-table))
+(defvar ess-r-mode-syntax-table
+  (let ((table (copy-syntax-table S-syntax-table)))
+    ;; Letting Emacs treat backquoted names and %ops% as strings solves
+    ;; many problems with regard to nested strings and quotes
+    (modify-syntax-entry ?` "\"" table)
+    (modify-syntax-entry ?% "\"" table)
+    ;; Underscore is valid in R symbols
+    (modify-syntax-entry ?_ "_" table)
+    (modify-syntax-entry ?: "." table)
+    (modify-syntax-entry ?@ "." table)
+    (modify-syntax-entry ?$ "." table)
+    table)
+  "Syntax table for `ess-r-mode'.")
 
-;; Letting Emacs treat backquoted names and %ops% as strings solves
-;; many problems with regard to nested strings and quotes
-(modify-syntax-entry ?` "\"" ess-r-syntax-table)
-(modify-syntax-entry ?% "\"" ess-r-syntax-table)
-
-;; Underscore is valid in R symbols
-(modify-syntax-entry ?_ "_" ess-r-syntax-table)
-(modify-syntax-entry ?: "." ess-r-syntax-table)
-(modify-syntax-entry ?@ "." ess-r-syntax-table)
-(modify-syntax-entry ?$ "." ess-r-syntax-table)
-
-;; TOTHINK: Prevent string delimiting characters from messing up output in the
-;; inferior buffer
-(defvar inferior-ess-r-syntax-table (copy-syntax-table ess-r-syntax-table))
-(modify-syntax-entry ?\' "." inferior-ess-r-syntax-table)
-;; (modify-syntax-entry ?\" "." inferior-ess-r-syntax-table)
-;; (modify-syntax-entry ?` "." inferior-ess-r-syntax-table)
-(modify-syntax-entry ?% "." inferior-ess-r-syntax-table)
 
 (defvar ess-r-completion-syntax-table
-  (let ((table (make-syntax-table ess-r-syntax-table)))
+  (let ((table (copy-syntax-table ess-r-mode-syntax-table)))
     (modify-syntax-entry ?. "_" table)
     (modify-syntax-entry ?: "_" table)
     (modify-syntax-entry ?$ "_" table)
@@ -257,39 +304,37 @@ about which objects are exported and which stay hidden in the
 namespace.")
 
 (defun ess-r-font-lock-syntactic-face-function (state)
-  (let ((string-end (save-excursion
-                      (and (nth 3 state)
-                           (ess-goto-char (nth 8 state))
-                           (ess-forward-sexp)
-                           (point)))))
-    (when (eq (nth 3 state) ?`)
-      (put-text-property (nth 8 state) string-end 'ess-r-backquoted t))
-    (cond
-     ((eq (nth 3 state) ?%)
-      (if (eq (point) (1- string-end))
-          (when (cdr (assq 'ess-fl-keyword:operators ess-R-font-lock-keywords))
-            'ess-operator-face)
-        (if (cdr (assq 'ess-R-fl-keyword:%op% ess-R-font-lock-keywords))
-            'ess-%op%-face
-          'default)))
-     ((save-excursion
-        (and (cdr (assq 'ess-R-fl-keyword:fun-defs ess-R-font-lock-keywords))
-             (ess-goto-char string-end)
-             (ess-looking-at "<-")
-             (ess-goto-char (match-end 0))
-             (ess-looking-at "function\\b" t)))
-      font-lock-function-name-face)
-     ((save-excursion
-        (and (cdr (assq 'ess-fl-keyword:fun-calls ess-R-font-lock-keywords))
-             (ess-goto-char string-end)
-             (ess-looking-at "(")))
-      ess-function-call-face)
-     ((eq (nth 3 state) ?`)
-      'default)
-     ((nth 3 state)
-      font-lock-string-face)
-     (t
-      font-lock-comment-face))))
+  (if (nth 3 state)
+      ;; string case
+      (let ((string-end (save-excursion
+                          (ess-goto-char (nth 8 state))
+                          (ess-forward-sexp)
+                          (point))))
+        (cond
+         ((eq (nth 3 state) ?%)
+          (if (eq (point) (1- string-end))
+              (when (cdr (assq 'ess-fl-keyword:operators ess-R-font-lock-keywords))
+                'ess-operator-face)
+            (if (cdr (assq 'ess-R-fl-keyword:%op% ess-R-font-lock-keywords))
+                'ess-%op%-face
+              'default)))
+         ((save-excursion
+            (and (cdr (assq 'ess-R-fl-keyword:fun-defs ess-R-font-lock-keywords))
+                 (ess-goto-char string-end)
+                 (ess-looking-at "<-")
+                 (ess-goto-char (match-end 0))
+                 (ess-looking-at "function\\b" t)))
+          font-lock-function-name-face)
+         ((save-excursion
+            (and (cdr (assq 'ess-fl-keyword:fun-calls ess-R-font-lock-keywords))
+                 (ess-goto-char string-end)
+                 (ess-looking-at "(")))
+          ess-function-call-face)
+         ((eq (nth 3 state) ?`)
+          'default)
+         (t
+          font-lock-string-face)))
+    font-lock-comment-face))
 
 (defvar ess-r--non-fn-kwds
   '("in" "else" "break" "next" "repeat"))
@@ -334,31 +379,17 @@ To be used as part of `font-lock-defaults' keywords."
                     (looking-at "\\s-*(")))))
     out))
 
-(define-obsolete-variable-alias 'R-customize-alist 'ess-r-customize-alist "ESS 18.10-2")
+(define-obsolete-variable-alias 'R-customize-alist 'ess-r-customize-alist "ESS 18.10.2")
 (defvar ess-r-customize-alist
   (append
    '((ess-local-customize-alist             . 'ess-r-customize-alist)
      (ess-dialect                           . "R")
      (ess-suffix                            . "R")
-     (ess-ac-sources                        . ess-r-ac-sources)
-     (ess-company-backends                  . ess-r-company-backends)
-     (ess-build-tags-command                . ess-r-build-tags-command)
      (ess-traceback-command                 . ess-r-traceback-command)
      (ess-call-stack-command                . ess-r-call-stack-command)
      (ess-mode-completion-syntax-table      . ess-r-completion-syntax-table)
      (ess-build-eval-message-function       . #'ess-r-build-eval-message)
-     (ess-format-eval-command-function      . #'ess-r-format-eval-command)
-     (ess-format-load-command-function      . #'ess-r-format-load-command)
-     (ess-send-region-function              . #'ess-r-send-region)
-     (ess-load-file-function                . #'ess-r-load-file)
-     (ess-make-source-refd-command-function . #'ess-r-make-source-refd-command)
-     (ess-format-eval-message-function      . #'ess-r-format-eval-message)
-     (ess-install-library-function          . #'ess-r-install-library)
-     (ess-eldoc-function                    . #'ess-r-eldoc-function)
-     (ess-help-web-search-command           . #'ess-r-sos)
-     (ess-build-help-command-function       . #'ess-r-build-help-command)
      (ess-dump-filename-template            . ess-r-dump-filename-template)
-     (ess-mode-editing-alist                . ess-r-editing-alist)
      (ess-change-sp-regexp                  . ess-r-change-sp-regexp)
      (ess-help-sec-regex                    . ess-help-r-sec-regex)
      (ess-help-sec-keys-alist               . ess-help-r-sec-keys-alist)
@@ -369,31 +400,17 @@ To be used as part of `font-lock-defaults' keywords."
      (inferior-ess-objects-command          . inferior-ess-r-objects-command)
      (inferior-ess-search-list-command      . "search()\n")
      (inferior-ess-help-command             . inferior-ess-r-help-command)
-     (inferior-ess-help-filetype            . nil)
      (inferior-ess-exit-command             . "q()")
-     (inferior-ess-exit-prompt              . "Save workspace image? [y/n/c]: ")
-     (inferior-ess-start-file               . nil)
-     (inferior-ess-start-args               . "")
-     (inferior-ess-mode-syntax-table        . inferior-ess-r-syntax-table)
      (ess-error-regexp-alist                . ess-r-error-regexp-alist)
      (ess-describe-object-at-point-commands . 'ess-r-describe-object-at-point-commands)
      (ess-STERM                             . "iESS")
      (ess-editor                            . ess-r-editor)
-     (ess-pager                             . ess-r-pager)
-     (ess-mode-syntax-table                 . ess-r-syntax-table)
-     (font-lock-syntactic-face-function     . #'ess-r-font-lock-syntactic-face-function)
-     (prettify-symbols-alist                . ess-r-prettify-symbols))
+     (ess-pager                             . ess-r-pager))
    S-common-cust-alist)
-  "Variables to customize for R -- set up later than Emacs initialization.")
+  "Variables to customize for R.")
 
-;; VS[24-08-2018]: FIXME: make initialization of custom-alist tail-to-top and
-;; put this into the above alist
-(setcdr (assoc 'ess-font-lock-keywords ess-r-customize-alist)
-        (quote 'ess-R-font-lock-keywords))
-(setcdr (assoc 'inferior-ess-font-lock-keywords ess-r-customize-alist)
-        (quote 'inferior-ess-r-font-lock-keywords))
-
-(defvar ess-r-build-tags-command
+(cl-defmethod ess-build-tags-command (&context (ess-dialect "R"))
+  "Return tags command for R."
   "rtags('%s', recursive = TRUE, pattern = '\\\\.[RrSs](rw)?$',ofile = '%s')")
 
 (defvar ess-r-traceback-command
@@ -412,14 +429,6 @@ fill=TRUE); try(traceback(), silent=TRUE)})\n")
 
 (defvar ess-r-company-backends
   '((company-R-library company-R-args company-R-objects :separate)))
-
-(defvar ess-r-editing-alist
-  ;; copy the S-alist and modify :
-  (let ((S-alist (copy-alist S-editing-alist)))
-    (setcdr (assoc 'ess-mode-syntax-table S-alist)
-            (quote ess-r-syntax-table))
-    S-alist)
-  "General options for editing R source files.")
 
 (defconst ess-help-r-sec-regex "^[A-Z][A-Za-z].+:$"
   "Reg(ular) Ex(pression) of section headers in help file.")
@@ -441,68 +450,28 @@ fill=TRUE); try(traceback(), silent=TRUE)})\n")
 (defvar ess-r-error-regexp-alist '(R R1 R2 R3 R4 R-recover)
   "List of symbols which are looked up in `compilation-error-regexp-alist-alist'.")
 
-;; Takes precidence over R1 below in english locales, and allows spaces in file path
-(add-to-list 'compilation-error-regexp-alist-alist
-             '(R "\\(\\(?: at \\|(@\\)\\([^#()\n]+\\)[#:]\\([0-9]+\\)\\)"  2 3 nil 2 1))
-
-(add-to-list 'compilation-error-regexp-alist-alist
+(dolist (l '(;; Takes precedence over R1 below in English locales, and allows spaces in file path
+             (R "\\(\\(?: at \\|(@\\)\\([^#()\n]+\\)[#:]\\([0-9]+\\)\\)"  2 3 nil 2 1)
              ;; valgrind style (stl_numeric.h:183)
-             '(R1 "(\\([^ ):\n]+\\):\\([0-9]+\\)?)" 1 2 nil 2))
-
-(add-to-list 'compilation-error-regexp-alist-alist
-             '(R2 "(\\(\\w+ \\([^())\n]+\\)#\\([0-9]+\\)\\))"  2 3 nil 2 1))
-
-;; Precedes R4 and allows spaces in file path
-(add-to-list 'compilation-error-regexp-alist-alist
-             ;; Starts at bol or with ": " (patterns 3,4,5,6,9)
-             '(R3 "\\(?:^ *\\|: ?\\)\\([^-+[:digit:] \t\n]:?[^: \t\n]*\\):\\([0-9]+\\):\\(?:\\([0-9]+\\):\\)?"  1 2 3 2 1))
-
-(add-to-list 'compilation-error-regexp-alist-alist
+             (R1 "(\\([^ ):\n]+\\):\\([0-9]+\\)?)" 1 2 nil 2)
+             (R2 "(\\(\\w+ \\([^())\n]+\\)#\\([0-9]+\\)\\))"  2 3 nil 2 1)
+             ;; Precedes R4 and allows spaces in file path, Starts at bol or with ": " (patterns 3,4,5,6,9)
+             (R3 "\\(?:^ *\\|: ?\\)\\([^-+[:digit:] \t\n]:?[^: \t\n]*\\):\\([0-9]+\\):\\(?:\\([0-9]+\\):\\)?"  1 2 3 2 1)
              ;; Don't start with digit; no spaces
-             '(R4 "\\([^-+ [:digit:]][^: \t\n]+\\):\\([0-9]+\\):\\([0-9]+\\):"  1 2 3 2 1))
-
-(add-to-list 'compilation-error-regexp-alist-alist
-             '(R-recover " *[0-9]+: +\\([^:\n\t]+?\\)#\\([0-9]+:\\)"  1 2 nil 2 1))
-
-;; gnu C errors
-;; (add-to-list 'compilation-error-regexp-alist-alist
-;;              '(R_C "^\\([^-+ [:digit:]][^: \t\n]+\\):\\([0-9]+\\):\\([0-9]+\\):"  2 3 nil 2 1))
-
-
-(defvar ess-r-versions
-  (let ((r-ver '("R-1" "R-2" "R-3" "R-devel" "R-patched")))
-    (if (eq system-type 'darwin) (append r-ver '("R32" "R64")) r-ver))
-  "List of partial strings for versions of R to access within ESS.
-Each string specifies the start of a filename.  If a filename
-beginning with one of these strings is found on `exec-path', a
-command for that version of R is made available.  For example, if the
-file \"R-1.8.1\" is found and this variable includes the string
-\"R-1\", a function called `M-x R-1.8.1' will be available to run that
-version of R.
-If duplicate versions of the same program are found (which happens if
-the same path is listed on `exec-path' more than once), they are
-ignored by calling `ess-uniq-list'.
-Set this variable to nil to disable searching for other versions of R.
-If you set this variable, you need to restart Emacs (and set this variable
-before ess-site is loaded) for it to take effect.")
+             (R4 "\\([^-+ [:digit:]][^: \t\n]+\\):\\([0-9]+\\):\\([0-9]+\\):"  1 2 3 2 1)
+             (R-recover " *[0-9]+: +\\([^:\n\t]+?\\)#\\([0-9]+:\\)"  1 2 nil 2 1)))
+  (cl-pushnew l compilation-error-regexp-alist-alist))
 
 (define-obsolete-variable-alias 'ess-r-versions-created 'ess-r-created-runners "ESS 18.10")
 (defvar ess-r-created-runners nil
-  "List of R-versions found from `ess-r-versions' on the system.")
+  "List of R-versions found from `ess-r-runner-prefixes' on the system.")
 
 
 ;;;*;;; Mode init
 
-(define-obsolete-variable-alias 'ess-R-post-run-hook 'ess-r-post-run-hook "ESS 18.10-2")
+(define-obsolete-variable-alias 'ess-R-post-run-hook 'ess-r-post-run-hook "ESS 18.10.2")
 (defvar ess-r-post-run-hook nil
   "Functions run in process buffer after the initialization of R process.")
-
-(defun ess-r-mode-p ()
-  "Check whether we have a buffer running in R mode.
-
-This is to get around the lack of proper derived modes in ESS."
-  (and (eq major-mode 'ess-mode)
-       (string= ess-dialect "R")))
 
 ;;;###autoload
 (defun run-ess-r (&optional start-args)
@@ -520,10 +489,18 @@ will be prompted to enter arguments interactively."
    (format
     "\n(R): ess-dialect=%s, buf=%s, start-arg=%s\n current-prefix-arg=%s\n"
     ess-dialect (current-buffer) start-args current-prefix-arg))
+  (unless (or (file-remote-p default-directory)
+              (and ess-startup-directory
+                   (file-remote-p ess-startup-directory))
+              ;; TODO: Once we drop Emacs 26 support, can probably
+              ;; just use the REMOTE argument of `executable-find'.
+              (executable-find inferior-ess-r-program))
+    (display-warning 'ess (format "%s could not be found on the system. Try running `run-ess-r-newest' instead, which searches your system for R." inferior-ess-r-program) :error)
+    (user-error "%s program not found" inferior-ess-r-program))
   (let* ((r-always-arg
           (if (or ess-microsoft-p (eq system-type 'cygwin))
               "--ess "
-            ;; else: "unix alike"
+            ;; else: "Unix alike"
             (if (not ess-R-readline) "--no-readline ")))
          (start-args
           (cond ((stringp start-args)
@@ -542,45 +519,31 @@ will be prompted to enter arguments interactively."
           (concat r-always-arg
                   inferior-R-args " "   ; add space just in case
                   start-args))
-         (cust-alist (copy-alist ess-r-customize-alist))
-         (gdbp (string-match-p "gdb" r-start-args))
+         (debug (string-match-p " -d \\| --debugger=" r-start-args))
          use-dialog-box)
-
-    (when gdbp
-      (setcdr (assoc 'inferior-ess-secondary-prompt cust-alist)
-              (format "\\(%s\\)\\|\\((gdb) \\)"
-                      (cdr (assoc 'inferior-ess-secondary-prompt cust-alist)))))
-
     (when (or ess-microsoft-p
               (eq system-type 'cygwin))
       (setq use-dialog-box nil)
       (when ess-microsoft-p ;; default-process-coding-system would break UTF locales on Unix
         (setq default-process-coding-system '(undecided-dos . undecided-dos))))
 
-    (inferior-ess r-start-args cust-alist gdbp)
-
-    (ess-process-put 'funargs-pre-cache ess-r--funargs-pre-cache)
-
-    (remove-hook 'completion-at-point-functions 'ess-filename-completion 'local) ;; should be first
-    (add-hook 'completion-at-point-functions 'ess-r-object-completion nil 'local)
-    (add-hook 'completion-at-point-functions 'ess-filename-completion nil 'local)
-    (when (>= emacs-major-version 25)
-      (add-hook 'xref-backend-functions #'ess-r-xref-backend nil 'local))
-    (setq comint-input-sender 'inferior-ess-r-input-sender)
-
-    (if gdbp
-        (progn
-          ;; We need to use callback, because R might start with a gdb process
-          (ess-process-put 'callbacks '(R-initialize-on-start))
-          ;; trigger the callback
-          (process-send-string (get-process ess-local-process-name) "\n"))
-      (ess-wait-for-process)
-      (R-initialize-on-start)
-      (comint-goto-process-mark))
-
-    (ess-write-to-dribble-buffer
-     (format "(R): inferior-ess-language-start=%s\n"
-             inferior-ess-language-start))))
+    (let ((inf-buf (inferior-ess r-start-args ess-r-customize-alist debug)))
+      (with-current-buffer inf-buf
+        (ess-process-put 'funargs-pre-cache ess-r--funargs-pre-cache)
+        (if debug
+            (progn
+              ;; We need to use callback, because R might start with a gdb process
+              (ess-process-put 'callbacks '(inferior-ess-r--init-callback))
+              ;; Trigger the callback
+              (process-send-string (get-buffer-process inf-buf) "r\n"))
+          (ess-wait-for-process)
+          (R-initialize-on-start)
+          (comint-goto-process-mark))
+        (ess-write-to-dribble-buffer
+         (format "(R): inferior-ess-language-start=%s\n"
+                 inferior-ess-language-start)))
+      ;; FIXME: Current ob-R expects current buffer set to process buffer
+      (set-buffer inf-buf))))
 
 ;;;###autoload
 (defalias 'R #'run-ess-r)
@@ -600,79 +563,183 @@ the package directory was selected in the first place."
           dir))
     dir))
 
-(defun R-initialize-on-start (&optional proc string)
+(defun inferior-ess-r--init-callback (_proc _name)
+  (R-initialize-on-start))
+
+(defun R-initialize-on-start ()
   "This function is run after the first R prompt.
 Executed in process buffer."
-  (interactive)
-  ;; sometimes needed (MM w/ Emacs 25.1, on F24 where PAGER is 'more'):
-  ;; carefully set "pager" option  "when needed":
-  (let ((pager-cmd (format
-                    "if(identical(getOption('pager'),
+  (ess-command (format
+                "if(identical(getOption('pager'),
                                   file.path(R.home(), 'bin', 'pager')))
                         options(pager='%s')\n"
-                    inferior-ess-pager)))
-    (ess-command pager-cmd))
-  (inferior-ess-r-load-ESSR)
+                inferior-ess-pager))
+  (ess-r-load-ESSR)
   (when inferior-ess-language-start
     (ess-command (concat inferior-ess-language-start "\n")))
-  (with-ess-process-buffer nil
-    (add-hook 'ess-presend-filter-functions 'ess-R-scan-for-library-call nil 'local)
-    (run-mode-hooks 'ess-r-post-run-hook)))
+  ;; tracebug
+  (when ess-use-tracebug (ess-tracebug 1))
+  (add-hook 'ess-presend-filter-functions 'ess-R-scan-for-library-call nil 'local)
+  (run-hooks 'ess-r-post-run-hook))
+
+(defun ess-r--skip-function ()
+  ;; Assumes the point is at function start
+  (if (looking-at-p ess-r-set-function-start)
+      (forward-list 1) ; get over the entire setXyz(...)
+    (forward-list 1) ; get over arguments
+    (if (looking-at-p "[ \t\n]*{")
+        (forward-sexp 1) ;; move over {...}
+      ;; {..}-less case
+      (skip-chars-forward " \t\n")
+      (goto-char (cadr (ess-continuations-bounds))))))
+
+;; `beginning-of-defun' protocol:
+;;  1) assumes that defuns are at the top level (e.g. always moves to bol)
+(defun ess-r-beginning-of-defun (&optional arg)
+  "Move to beginning a top level function.
+ARG is as in `beginning-of-defun'."
+  (ess-r-beginning-of-function arg t))
+
+;; `end-of-defun' protocol:
+;;  1) Uses beginning-of-defun-function with negative arg
+;;  2) Assumes that beginning-of-defun-function with -1 arg finds current defun
+;;  when point is just in front of the function
+(defun ess-r-end-of-defun (&optional arg)
+  "End of top level function.
+ARG is as in `end-of-defun'."
+  (ess-r-end-of-function arg t))
+
+(defun ess-r-beginning-of-function (&optional arg top-level)
+  "Leave (and return) the point at the beginning of the current ESS function.
+When ARG is positive, search for beginning of function backward,
+otherwise forward. Value of ARG is currently ignored. Return the
+new position, or nil if no-match. If TOP-LEVEL is non-nil, search
+for top-level functions only."
+  (setq arg (or arg 1))
+  (let ((start-point (point))
+        done)
+    ;; In case we are at the start of a function, skip past new lines.
+    (when (> arg 0)
+      ;; Start search from a forward position in order to capture current
+      ;; function start. But not when arg < 0; see end-of-defun protocol above.
+      (forward-line 2))
+    (while (and (not done)
+                (re-search-backward ess-r-function-pattern nil t arg))
+      (unless (ess-inside-string-or-comment-p)
+        (setq done
+              (if top-level
+                  (= (car (syntax-ppss (match-beginning 0))) 0)
+                t))
+        (if (< arg 0)
+            ;; move to match-end to avoid the infloop in re-search-backward
+            (goto-char (if done (match-beginning 0) (match-end 0)))
+          ;; Backward regexp match stops at the minimal match (e.g. partial
+          ;; function name), so we need a bit more work here.
+          (beginning-of-line)
+          (re-search-forward ess-r-function-pattern)
+          (goto-char (match-beginning 0))
+          (when (<= start-point (point))
+            (setq done nil)))))
+    (if done
+        (point)
+      (goto-char start-point)
+      nil)))
+
+(defun ess-r-end-of-function (&optional arg top-level)
+  "Leave the point at the end of the current function.
+When ARG is positive, search for end of function forward,
+otherwise backward. Move to point and return point if search was
+successful, otherwise nil. If TOP-LEVEL is non-nil, search for
+top level functions only."
+  (setq arg (or arg 1))
+  (let* ((start-pos (point))
+         (search-fn (lambda (lim)
+                      (let ((foundp nil))
+                        (while (and (not foundp)
+                                    (re-search-forward ess-r-function-pattern nil t))
+                          (when (< arg 0)
+                            ;; re-search-backward is a forward search
+                            ;; internally, so we need to bol in order to avoid
+                            ;; the infloop
+                            (beginning-of-line))
+                          (setq foundp
+                                (unless (ess-inside-string-or-comment-p)
+                                  (if top-level
+                                      (= 0 (car (save-excursion (syntax-ppss (match-beginning 0)))))
+                                    (>= (point) lim)))))
+                        (if foundp
+                            (progn (goto-char (match-beginning 0))
+                                   (ess-r--skip-function))
+                          (goto-char start-pos))))))
+    (ess-r-beginning-of-function 1 top-level)
+    (if (< (point) start-pos)
+        ;; Moved back. We were either inside a function or after a function.
+        (progn
+          (ess-r--skip-function)
+          ;; For negative ARG we are done.
+          (when (and (> arg 0)
+                     (<= (point) start-pos))
+            (funcall search-fn start-pos)))
+      ;; No function before point; search forward on positive ARG.
+      (when (> arg 0)
+        (funcall search-fn start-pos)))))
 
 ;;;###autoload
-(defun R-mode  (&optional proc-name)
+(define-derived-mode ess-r-mode ess-mode "ESS[R]"
   "Major mode for editing R source.  See `ess-mode' for more help."
-  (interactive "P")
-  (setq ess-customize-alist ess-r-customize-alist)
-  ;;(setq imenu-generic-expression R-imenu-generic-expression)
-  (ess-mode ess-r-customize-alist proc-name)
-  ;; for emacs >= 24
+  :group 'ess-R
+  (ess-setq-vars-local ess-r-customize-alist)
+  (setq-local ess-font-lock-keywords 'ess-R-font-lock-keywords)
+  (setq-local paragraph-start (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-separate (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-ignore-fill-prefix t)
+  (setq-local indent-line-function #'ess-r-indent-line)
+  (setq-local comment-indent-function #'ess-calculate-indent)
+  (setq-local add-log-current-defun-header-regexp "^\\(.+\\)\\s-+<-[ \t\n]*function")
+  (setq-local font-lock-syntactic-face-function #'ess-r-font-lock-syntactic-face-function)
+  (setq-local electric-layout-rules '((?{ . after)))
+  ;; indentation
+  (add-hook 'hack-local-variables-hook #'ess-set-style nil t)
+  ;; eldoc
+  (add-function :before-until (local 'eldoc-documentation-function)
+                #'ess-r-eldoc-function)
+  (when ess-use-eldoc (eldoc-mode))
+  ;; auto-complete
+  (ess--setup-auto-complete ess-r-ac-sources)
+  ;; company
+  (ess--setup-company ess-r-company-backends)
+  (setq-local prettify-symbols-alist ess-r-prettify-symbols)
+  (setq font-lock-defaults '(ess-build-font-lock-keywords nil nil ((?\. . "w") (?\_ . "w"))))
   (remove-hook 'completion-at-point-functions 'ess-filename-completion 'local) ;; should be first
   (add-hook 'completion-at-point-functions 'ess-r-object-completion nil 'local)
+  (add-hook 'completion-at-point-functions #'ess-r-package-completion nil 'local)
   (add-hook 'completion-at-point-functions 'ess-filename-completion nil 'local)
-  (when (>= emacs-major-version 25)
-    (add-hook 'xref-backend-functions #'ess-r-xref-backend nil 'local))
+  (add-hook 'xref-backend-functions #'ess-r-xref-backend nil 'local)
 
   (if (fboundp 'ess-add-toolbar) (ess-add-toolbar))
+  ;; imenu is needed for `which-function'
+  (setq imenu-generic-expression ess-imenu-S-generic-expression)
   (when ess-imenu-use-S
-    (setq imenu-generic-expression ess-imenu-S-generic-expression)
     (imenu-add-to-menubar "Imenu-R"))
+  (setq-local beginning-of-defun-function #'ess-r-beginning-of-defun)
+  (setq-local end-of-defun-function #'ess-r-end-of-defun)
+  (ess-roxy-mode))
+;;;###autoload
+(defalias 'R-mode 'ess-r-mode)
+;;;###autoload
+(defalias 'r-mode 'ess-r-mode)
 
-  ;; useful for swankr/slime:
-  (set (make-local-variable 'beginning-of-defun-function)
-       (lambda (&optional arg)
-         (skip-chars-backward " \t\n")
-         (ess-beginning-of-function 'no-error)))
-  (set (make-local-variable 'end-of-defun-function)
-       'ess-end-of-function)
-
-  (ess-roxy-mode t)
-  (ad-activate 'fill-paragraph)
-  (ad-activate 'move-beginning-of-line)
-  (ad-activate 'back-to-indentation)
-  (ad-activate 'ess-eval-line-and-step)
-
-  ;; FIXME: Why advice our own function?
-  (when ess-roxy-hide-show-p
-    (ad-activate 'ess-indent-command))
-
-  (run-mode-hooks 'R-mode-hook))
 
 ;;;###autoload
-(defalias 'r-mode #'R-mode)
+(add-to-list 'auto-mode-alist '("/R/.*\\.q\\'" . ess-r-mode))
 ;;;###autoload
-(defalias 'ess-r-mode #'R-mode)
-
+(add-to-list 'auto-mode-alist '("\\.[rR]\\'" . ess-r-mode))
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("/R/.*\\.q\\'" . R-mode))
+(add-to-list 'auto-mode-alist '("\\.[rR]profile\\'" . ess-r-mode))
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.[rR]\\'" . R-mode))
+(add-to-list 'auto-mode-alist '("NAMESPACE\\'" . ess-r-mode))
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.[rR]profile\\'" . R-mode))
-;;;###autoload
-(add-to-list 'auto-mode-alist '("NAMESPACE\\'" . R-mode))
-;;;###autoload
-(add-to-list 'auto-mode-alist '("CITATION\\'"       . R-mode))
+(add-to-list 'auto-mode-alist '("CITATION\\'" . ess-r-mode))
 
 
 ;;*;; Miscellaneous
@@ -707,40 +774,60 @@ Returns either Name, a string, or a (Name . Path) cons, such as
         (cons val long-path)
       val)))
 
-(defun ess-r-define-runners ()
+(defun ess-r-define-runners (&optional verbose)
   "Generate functions for starting other versions of R.
-See `ess-r-versions' for strings that determine which functions
+See `ess-r-runner-prefixes' for strings that determine which functions
 are created.  On MS Windows, this works using
 `ess-rterm-version-paths' instead.
 
 The functions will normally be placed on the menubar and stored
 as `ess-r-created-runners' upon ESS initialization."
-  (when ess-r-versions
-    ;; try to find R versions in ess-r-versions.
+  (when ess-r-runner-prefixes
     (let ((versions
            ;; Find which versions of R we want.  Remove the pathname, leaving just
            ;; the name of the executable.
            (if ess-microsoft-p
                (mapcar (lambda (v) (car (ess-rterm-arch-version v 'give-cons)))
                        ess-rterm-version-paths)
-             (ess-uniq-list
+             (delete-dups
               (mapcar #'file-name-nondirectory
                       (apply #'nconc
                              (mapcar #'ess-find-exec-completions
-                                     ess-r-versions)))))))
+                                     ess-r-runner-prefixes)))))))
       ;; Iterate over each string in VERSIONS, creating a new defun each time.
       (setq ess-r-created-runners versions)
-    (if ess-microsoft-p
-        (cl-mapcar (lambda (v p) (ess-define-runner v "R" p)) versions ess-rterm-version-paths)
-      (mapc (lambda (v) (ess-define-runner v "R")) versions))
-    ;; Add to menu
-    (when ess-r-created-runners
-      ;; new-menu will be a list of 3-vectors, of the form:
-      ;; ["R-1.8.1" R-1.8.1 t]
-      (let ((new-menu (mapcar (lambda(x) (vector x (intern x) t))
-                              ess-r-created-runners)))
-        (easy-menu-add-item ess-mode-menu '("Start Process")
-                            (cons "Other" new-menu)))))))
+      (if verbose
+        (message "Recreated %d R versions known to ESS: %s"
+                 (length versions) versions))
+      (if ess-microsoft-p
+          (cl-mapcar (lambda (v p) (ess-define-runner v "R" p)) versions ess-rterm-version-paths)
+        (mapc (lambda (v) (ess-define-runner v "R")) versions))
+      ;; Add to menu
+      (when ess-r-created-runners
+        ;; new-menu will be a list of 3-vectors, of the form:
+        ;; ["R-1.8.1" R-1.8.1 t]
+        (let ((new-menu (mapcar (lambda(x) (vector x (intern x) t))
+                                ess-r-created-runners)))
+          (easy-menu-add-item ess-mode-menu '("Start Process")
+                              (cons "Other" new-menu))
+          (easy-menu-add-item inferior-ess-mode-menu '("Process")
+                              (cons "R processes" new-menu)))))))
+
+(defun ess-r-redefine-runners (&optional verbose)
+  "Regenerate runners, i.e. `M-x R-*` possibilities.
+ Call `fmakunbound' on all elements of `ess-r-created-runners', then define new runners."
+  (interactive "P")
+  (dolist (f ess-r-created-runners)
+    (fmakunbound (intern f)))
+  (setq ess-r-created-runners nil)
+  (ess-r-define-runners verbose))
+
+(defun ess-r-runners-reset (sym val)
+  "Regenerate runners.
+Set SYM to VAL and call `ess-r-redefine-runners'."
+  (set-default sym val)
+  (ess-r-redefine-runners))
+
 (define-obsolete-function-alias
   'ess-r-versions-create 'ess-r-define-runners "ESS 18.10")
 
@@ -758,69 +845,41 @@ by the code on Windows for finding the newest version of R."
   :type 'boolean)
 
 (defun ess-rterm-prefer-higher-bit ()
-  "Optionally remove 32bit Rterms from being candidate for `R-newest'.
-Return the list of candidates for being `R-newest'. Filtering is
+  "Optionally remove 32bit Rterms from being candidate for `run-ess-r-newest'.
+Return the list of candidates for being `run-ess-r-newest'. Filtering is
 done iff `ess-prefer-higher-bit' is non-nil. This is used only by
 Windows when running `ess-find-newest-R'."
   (if ess-prefer-higher-bit
-    ;; filter out 32 bit elements
-    (let ((filtered
-           (delq nil
-            (mapcar (lambda (x) (unless (string-match "/i386/Rterm.exe" x) x))
-                    ess-rterm-version-paths))))
-      (if (null filtered)
-          ;; if none survived filtering, keep the original list
-          ess-rterm-version-paths
-        filtered))
+      ;; filter out 32 bit elements
+      (let ((filtered
+             (delq nil
+                   (mapcar (lambda (x) (unless (string-match "/i386/Rterm.exe" x) x))
+                           ess-rterm-version-paths))))
+        (if (null filtered)
+            ;; if none survived filtering, keep the original list
+            ess-rterm-version-paths
+          filtered))
     ess-rterm-version-paths))
 
-
-(defun ess-find-newest-R ()
-  "Find the newest version of R on the system.
-Once the value is found, cache it in the variable `ess-newest-R'
-for future use as finding the newest version of R can be
-potentially time-consuming."
-  (or ess-newest-R
-      (progn (message "Finding all versions of R on your system...")
-             ;;(sleep-for 3)
-             nil)
-      (setq ess-newest-R
-            (ess-newest-r
-             (if ess-microsoft-p
-                 (ess-rterm-prefer-higher-bit)
-               (add-to-list 'ess-r-created-runners
-                            inferior-ess-r-program))))))
-
-(defun ess-check-R-program ()
-  "Check if `inferior-ess-r-program' points to an executable version of R.
-If not, try to find the newest version of R elsewhere on the system, and
-update `inferior-ess-r-program' accordingly."
-  (unless (executable-find inferior-ess-r-program)
-    ;; need to check if we can find another name.
-    (let ((newest (ess-find-newest-R)))
-      (if newest
-          (setq inferior-ess-r-program newest)
-        (message "Sorry, no version of R could be found on your system.")))))
-
-(defun R-newest (&optional start-args)
+(defun run-ess-r-newest (&optional start-args)
   "Find the newest version of R available, and run it.
-Subsequent calls to `R-newest' will run that version, rather than searching
-again for the newest version.  Providing an optional prefix START-ARGS (\\[universal-argument]) will
+Subsequent calls to `run-ess-r-newest' will run that version,
+rather than searching again for the newest version. Providing
+START-ARGS (interactively, with \\[universal-argument]) will
 prompt for command line arguments."
   (interactive "P")
-  (let ((rnewest (ess-find-newest-R)))
-    (if (not rnewest)
-        (error "No version of R could be found")
-      ;; Else: we have a working version of R.
-      ;; Have to be careful to avoid recursion...
-      (message (concat "Newest version of R is " rnewest))
-      (fset 'R-newest
-            (intern
-             (if ess-microsoft-p
-                 (ess-rterm-arch-version rnewest)
-               rnewest)))
-      ;;(fset 'R-newest (intern rnewest))
-      (R-newest start-args))))
+  (unless ess-newest-R
+    (message "Finding all versions of R on your system...")
+    (setq ess-newest-R
+          (ess-find-newest-date
+           (mapcar #'ess-r-version-date
+                   (if ess-microsoft-p
+                       (ess-rterm-prefer-higher-bit)
+                     (add-to-list 'ess-r-created-runners inferior-ess-r-program))))))
+  (let ((inferior-ess-r-program ess-newest-R))
+    (run-ess-r start-args)))
+
+(defalias 'R-newest 'run-ess-r-newest)
 
 ;; (ess-r-version-date "R-2.5.1") (ess-r-version-date "R-patched")
 ;; (ess-r-version-date "R-1.2.1") (ess-r-version-date "R-1.8.1")
@@ -862,19 +921,6 @@ Examples: (ess-current-R-at-least '2.7.0)
   (string= "TRUE"
            (car (ess-get-words-from-vector
                  (format "as.character(.ess.Rversion >= \"%s\")\n" version)))))
-
-(defvar ess-temp-newest nil)
-
-(defun ess-newest-r (rvers)
-  "Check all the versions of RVERS to see which is the newest.
-Return the name of the newest version of R."
-  (let ((rtimes (mapcar 'ess-r-version-date rvers)))
-    ;; SJE: 2007-07-13 -- following line is a temp var to check that
-    ;; the newest version of R is found correctly.
-    ;; (nowadays gives a compile warning)
-    (setq ess-temp-newest rtimes)
-    (ess-find-newest-date rtimes)))
-
 (defun ess-find-newest-date (rvers)
   "Find the newest version of R given in the a-list RVERS.
 Each element of RVERS is a dotted pair (date . R-version), where
@@ -894,10 +940,10 @@ If the value returned is nil, no valid newest version of R could be found."
     new-r))
 
 (defun ess-find-rterm (&optional ess-R-root-dir bin-Rterm-exe)
-  "Find the full path of all occurences of Rterm.exe under the ESS-R-ROOT-DIR.
+  "Find the full path of all occurrences of Rterm.exe under the ESS-R-ROOT-DIR.
 If ESS-R-ROOT-DIR is nil, construct it by looking for an
-occurence of Rterm.exe in the `exec-path'. If there are no
-occurences of Rterm.exe in the `exec-path', then use
+occurrence of Rterm.exe in the `exec-path'. If there are no
+occurrences of Rterm.exe in the `exec-path', then use
 `ess-program-files' (which evaluates to something like
 \"c:/progra~1/R/\" in English locales) which is the default
 location for the R distribution. If BIN-RTERM-EXE is nil, then
@@ -922,7 +968,7 @@ use \"bin/Rterm.exe\"."
             (ess-flatten-list
              (mapcar (lambda (r-prefix)
                        (file-name-all-completions r-prefix ess-R-root-dir))
-                     (append '("rw") ess-r-versions))))))
+                     (append '("rw") ess-r-runner-prefixes))))))
       (mapcar (lambda (dir)
                 (let ((R-path
                        (concat ess-R-root-dir
@@ -931,46 +977,35 @@ use \"bin/Rterm.exe\"."
                   (if (file-exists-p R-path) R-path)))
               R-ver))))
 
-;;;###autoload
-(defun Rnw-mode ()
-  "Major mode for editing Sweave(R) source.
-See `ess-noweb-mode' and `R-mode' for more help."
-  (interactive)
-  (require 'ess-noweb);; << probably someplace else
-  (setq ess--make-local-vars-permanent t)
-  (ess-noweb-mode 1); turn it on
-  (ess-noweb-set-doc-mode 'latex-mode)
-  (ess-noweb-set-code-mode 'R-mode)
-  (setq ess--local-handy-commands
-        (append '(("weave"      . ess-swv-weave)
-                  ("tangle"     . ess-swv-tangle))
-                ess-handy-commands)
-        ess-dialect "R"
-        ess-language "S")
-  (put 'ess--local-handy-commands 'permanent-local t)
-  (run-mode-hooks 'Rnw-mode-hook))
-
-(fset 'Snw-mode 'Rnw-mode); just a synonym (for now or ever)
+(cl-defmethod ess-font-lock-keywords (&context (major-mode ess-r-transcript-mode))
+  'ess-R-font-lock-keywords)
 
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.[rR]nw\\'" . Rnw-mode))
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.[sS]nw\\'" . Snw-mode))
+(define-derived-mode ess-r-transcript-mode ess-transcript-mode "ESS R Transcript"
+  "A Major mode for R transcript files."
+  :syntax-table ess-r-mode-syntax-table
+  :group 'ess
+  (ess-setq-vars-local ess-r-customize-alist)
+  (setq-local comint-prompt-regexp inferior-S-prompt)
+  (setq-local ess-font-lock-keywords 'ess-R-font-lock-keywords)
+  (setq-local paragraph-start (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-separate (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-ignore-fill-prefix t)
+  (setq-local indent-line-function #'ess-r-indent-line)
+  (setq-local add-log-current-defun-header-regexp "^\\(.+\\)\\s-+<-[ \t\n]*function")
+  (setq-local font-lock-syntactic-face-function #'ess-r-font-lock-syntactic-face-function)
+  (setq-local prettify-symbols-alist ess-r-prettify-symbols)
+  (setq font-lock-defaults '(ess-build-font-lock-keywords
+                             nil nil ((?\. . "w") (?\_ . "w") (?' . ".")))))
+
+(fset 'r-transcript-mode 'ess-r-transcript-mode)
 
 ;;;###autoload
-(defun R-transcript-mode ()
-  "Does the right thing."
-  (interactive)
-  (ess-transcript-mode ess-r-customize-alist))
-
-(fset 'r-transcript-mode 'R-transcript-mode)
-
+(add-to-list 'auto-mode-alist '("\\.[Rr]out" . ess-r-transcript-mode))
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.[Rr]out" . R-transcript-mode))
+(add-to-list 'interpreter-mode-alist '("Rscript" . ess-r-mode))
 ;;;###autoload
-(add-to-list 'interpreter-mode-alist '("Rscript" . R-mode))
-;;;###autoload
-(add-to-list 'interpreter-mode-alist '("r" . R-mode))
+(add-to-list 'interpreter-mode-alist '("r" . ess-r-mode))
 
 (defun ess-r-fix-T-F (&optional from quietly)
   "Change T/F into TRUE and FALSE cautiously.
@@ -995,26 +1030,25 @@ Used by `ess-r-install-library'.")
 (defvar ess--CRAN-mirror nil
   "CRAN mirror name cache.")
 
-(defun ess-r-install-library (&optional update pack)
-  "Prompt and install R package PACK.
+(cl-defmethod ess-install-library--override (update package &context (ess-dialect "R"))
+  "Prompt and install R PACKAGE.
 With argument UPDATE, update cached packages list."
-  (interactive "P")
   (inferior-ess-r-force)
   (when (equal "@CRAN@" (car (ess-get-words-from-vector "getOption('repos')[['CRAN']]\n")))
     (ess-set-CRAN-mirror ess--CRAN-mirror)
     (ess-wait-for-process (get-process ess-current-process-name))
-    (unless pack (setq update t)))
+    (unless package (setq update t)))
   (when (or update
             (not ess--packages-cache))
     (message "Fetching R packages ... ")
     (setq ess--packages-cache
           (ess-get-words-from-vector "print(rownames(available.packages()), max=1e6)\n")))
   (let* ((ess-eval-visibly-p t)
-         (pack (or pack
-                   (ess-completing-read "Package to install" ess--packages-cache))))
+         (package (or package
+                      (ess-completing-read "Package to install" ess--packages-cache))))
     (process-send-string (get-process ess-current-process-name)
-                         (format "install.packages('%s')\n" pack))
-    (display-buffer (buffer-name (process-buffer (get-process ess-current-process-name))))))
+                         (format "install.packages('%s')\n" package))
+    (display-buffer (buffer-name (ess-get-process-buffer)))))
 
 (defun ess-setRepositories ()
   "Call setRepositories()."
@@ -1029,16 +1063,12 @@ With argument UPDATE, update cached packages list."
   (let ((mirror-cmd "local({r <- getOption('repos'); r['CRAN'] <- '%s';options(repos=r)})\n"))
     (if mirror
         (ess-command (format mirror-cmd mirror))
-      (let* ((M1 (ess-get-words-from-vector "local({out <- getCRANmirrors(local.only=TRUE); print(paste(out$Name,'[',out$URL,']', sep=''))})\n"))
-             (M2 (mapcar (lambda (el)
-                           (string-match "\\(.*\\)\\[\\(.*\\)\\]$" el)
-                           (propertize (match-string 1 el) 'URL (match-string 2 el)))
-                         M1))
-             (mirror  (ess-completing-read "Choose CRAN mirror" M2 nil t)))
-        (when mirror
-          (setq mirror (get-text-property 0 'URL mirror))
-          (setq ess--CRAN-mirror mirror)
-          (ess-command (format mirror-cmd mirror))))))
+      (when-let ((M1 (ess-get-words-from-vector "local({out <- getCRANmirrors(local.only=TRUE); print(paste(out$Name,'[',out$URL,']', sep=''))})\n"))
+                 (mirror (ess-completing-read "Choose CRAN mirror" M1 nil t))
+                 (url (car (cl-member mirror M1 :test #'string=))))
+        (setq ess--CRAN-mirror (progn (string-match "\\(.*\\)\\[\\(.*\\)\\]$" url)
+                                      (match-string 2 url)))
+        (ess-command (format mirror-cmd ess--CRAN-mirror)))))
   (message "CRAN mirror: %s" (car (ess-get-words-from-vector "getOption('repos')[['CRAN']]\n"))))
 (define-obsolete-function-alias 'ess-setCRANMiror 'ess-set-CRAN-mirror "ESS 18.10")
 
@@ -1047,14 +1077,14 @@ With argument UPDATE, update cached packages list."
   (unless (ess-boolean-command (format "print(requireNamespace('%s', quietly = TRUE))\n" pkg))
     (if (y-or-n-p (format "Package '%s' is not installed. Install? " pkg))
         (ess-eval-linewise (format "install.packages('%s')\n" pkg))
-      (signal 'quit nil))
-    (message nil)))
+      (signal 'quit nil))))
 
-(defun ess-r-sos (cmd)
-  "Interface to findFn in the library sos."
-  (interactive  "sfindFn: ")
+(define-obsolete-function-alias 'ess-r-sos #'ess-help-web-search "ESS 19.04")
+
+(cl-defmethod ess--help-web-search-override (cmd &context (ess-dialect "R"))
   (ess-r-check-install-package "sos")
   (ess-eval-linewise (format "sos::findFn(\"%s\", maxPages=10)" cmd)))
+
 
 (defun ess-R-scan-for-library-call (string)
   "Detect `library/require' call in STRING and update tracking vars.
@@ -1063,24 +1093,13 @@ Placed into `ess-presend-filter-functions' for R dialects."
     (ess--mark-search-list-as-changed))
   string)
 
-(defun ess-load-library ()
-  "Prompt and load dialect specific library/package/module.
+(cl-defmethod ess-installed-packages (&context (ess-dialect "R"))
+  ;;; FIXME? .packages() does not cache; installed.packages() does but is slower first time
+  (ess-get-words-from-vector "print(.packages(T), max=1e6)\n"))
 
-Note that add-ons in R are called 'packages' and the name of this
-function has nothing to do with R package mechanism, but it
-rather serves a generic, dialect independent purpose. It is also
-similar to `load-library' Emacs function."
-  (interactive)
-  (if (not (string-match "^R" ess-dialect))
-      (message "Sorry, not available for %s" ess-dialect)
-    (let ((ess-eval-visibly-p t)
-;;; FIXME? .packages() does not cache; installed.packages() does but is slower first time
-          (packs (ess-get-words-from-vector "print(.packages(T), max=1e6)\n"))
-          pack)
-      (setq pack (ess-completing-read "Load" packs))
-      (ess-eval-linewise (format "library('%s')\n" pack))
-      (ess--mark-search-list-as-changed)
-      (display-buffer (buffer-name (process-buffer (get-process ess-current-process-name)))))))
+(cl-defmethod ess-load-library--override (pack &context (ess-dialect "R"))
+  "Load an R package."
+  (ess-eval-linewise (format "library('%s')\n" pack)))
 
 (define-obsolete-function-alias 'ess-library 'ess-load-library "ESS[12.09-1]")
 
@@ -1108,19 +1127,23 @@ similar to `load-library' Emacs function."
                    (ess-r-arg "verbose" "TRUE"))))
     (concat visibly output pkg verbose)))
 
-(ess-defmethod R ess-build-eval-command (string &optional visibly output file namespace)
-  (let* ((namespace (unless ess-debug-minor-mode
+(cl-defmethod ess-build-eval-command--override (string &context (ess-dialect "R")
+                                                       &optional visibly output file &rest args)
+  "R method to build eval command."
+  (let* ((namespace (caar args))
+         (namespace (unless ess-debug-minor-mode
                       (or namespace (ess-r-get-evaluation-env))))
          (cmd (if namespace ".ess.ns_eval" ".ess.eval"))
          (file (when file (ess-r-arg "file" file t)))
-         (args (ess-r-build-args visibly output namespace)))
-    (concat cmd "(\"" string "\"" args file ")\n")))
+         (rargs (ess-r-build-args visibly output namespace)))
+    (concat cmd "(\"" string "\"" rargs file ")\n")))
 
-(ess-defmethod R ess-build-load-command (file &optional visibly output namespace)
-  (let* ((namespace (or namespace (ess-r-get-evaluation-env)))
+(cl-defmethod ess-build-load-command (string &context (ess-dialect "R")
+                                             &optional visibly output file &rest _args)
+  (let* ((namespace (or file (ess-r-get-evaluation-env)))
          (cmd (if namespace ".ess.ns_source" ".ess.source"))
-         (args (ess-r-build-args visibly output namespace)))
-    (concat cmd "('" file "'" args ")\n")))
+         (rargs (ess-r-build-args visibly output namespace)))
+    (concat cmd "('" string "'" rargs ")\n")))
 
 (defun ess-r-build-eval-message (message)
   (let ((env (cond (ess-debug-minor-mode
@@ -1182,7 +1205,7 @@ attached packages."
 (defvar ess-r-namespaced-load-only-existing t
   "Whether to load only objects already existing in a namespace.")
 
-(ess-defmethod R ess-load-file (file)
+(cl-defmethod ess-load-file--override (file &context (ess-dialect "R"))
   (cond
    ;; Namespaced evaluation
    ((ess-r-get-evaluation-env)
@@ -1197,26 +1220,26 @@ attached packages."
 
 This prompts for a package when no package is currently
 selected (see `ess-r-set-evaluation-env')."
-  (interactive)
   (ess-force-buffer-current "R process to use: ")
   (let* ((pkg-name (ess-r-get-evaluation-env))
          (command (ess-build-load-command file nil t pkg-name)))
     (ess-send-string (ess-get-process) command)))
 
-(ess-defmethod R ess-send-region (proc start end visibly message type)
+(cl-defmethod ess-send-region--override (process start end visibly message type
+                                                 &context (ess-dialect "R"))
   (cond
    ;; Namespaced evaluation
    ((ess-r-get-evaluation-env)
-    (ess-r-send-region-namespaced proc start end visibly message))
+    (ess-r-send-region-namespaced process start end visibly message))
    ;; Evaluation into current env
    (t
-    (ess-send-string proc (buffer-substring start end) visibly message type))))
+    (ess-send-string process (buffer-substring start end) visibly message type))))
 
-(defun ess-r-send-region-namespaced (proc beg end &optional visibly message)
+(defun ess-r-send-region-namespaced (proc start end &optional visibly message)
   "Ask for for the package and devSource region into it."
-  (let* ((pkg-name (or (ess-r-get-evaluation-env)
-                       (ess-r-set-evaluation-env))))
-    (message (ess-r-build-eval-message (or message "Eval region"))))
+  (or (ess-r-get-evaluation-env)
+      (ess-r-set-evaluation-env))
+  (message (ess-r-build-eval-message (or message "Eval region")))
   (ess-send-string proc (buffer-substring start end) visibly message))
 
 
@@ -1232,44 +1255,31 @@ selected (see `ess-r-set-evaluation-env')."
            (pkg (ess-r-arg "package" pkg-name t)))
       (concat ".ess.help(" object pkg ")\n"))))
 
-(defun ess-r-build-help-command--get-package-dir (object dont-ask)
+(defun ess-r-build-help-command--get-package-dir (object)
   ;; Ugly hack to avoid tcl/tk dialogues
   (let ((pkgs (ess-get-words-from-vector
                (format "as.character(utils::help('%s'))\n" object))))
     (when (> (length pkgs) 1)
-      (if dont-ask
-          (car pkgs)
-        (ess-completing-read "Choose location" pkgs nil t)))))
+      (ess-completing-read "Choose location" pkgs nil t))))
 
-(defun ess-r-build-help-command--unqualified (object dont-ask)
+(defun ess-r-build-help-command--unqualified (object)
   (if (eq ess-help-type 'index)
       ;; we are in index page, qualify with namespace
       (ess-r-build-help-command--qualified (format "%s::%s" ess-help-object object))
-    (let ((pkg-dir (ess-r-build-help-command--get-package-dir object dont-ask))
+    (let ((pkg-dir (ess-r-build-help-command--get-package-dir object))
           (command (format inferior-ess-r-help-command object)))
       (if pkg-dir
           ;; Invoking `print.help_files_with_topic'
           (format "do.call(structure, c('%s', attributes(%s)))\n" pkg-dir command)
         command))))
 
-(defun ess-r-build-help-command (object &optional dont-ask)
+(cl-defmethod ess-build-help-command (object &context (ess-dialect "R"))
   (or (ess-r-build-help-command--qualified object)
-      (ess-r-build-help-command--unqualified object dont-ask)))
+      (ess-r-build-help-command--unqualified object)))
 
 (defconst inferior-ess-r--input-help (format "^ *help *(%s)" ess-help-arg-regexp))
 (defconst inferior-ess-r--input-?-help-regexp "^ *\\(?:\\(?1:[a-zA-Z ]*?\\?\\{1,2\\}\\) *\\(?2:.+\\)\\)")
 (defconst inferior-ess-r--page-regexp (format "^ *page *(%s)" ess-help-arg-regexp))
-
-(defvar ess-help-r--last-help-type nil
-  "Variable holding the last known help type.
-If it changes, we flush the cache.")
-
-(defun ess-help-r--check-last-help-type ()
-  (let ((help-type (ess-string-command "getOption('help_type')\n")))
-    (when (not (string= help-type ess-help-r--last-help-type))
-      (let ((help-buffers (ess-help-get-local-help-buffers)))
-        (mapc #'kill-buffer help-buffers))
-      (setq ess-help-r--last-help-type help-type))))
 
 (defun ess-help-r--process-help-input (proc string)
   (let ((help-match (and (string-match inferior-ess-r--input-help string)
@@ -1279,22 +1289,21 @@ If it changes, we flush the cache.")
         (page-match   (and (string-match inferior-ess-r--page-regexp string)
                            (match-string 2 string))))
     (when (or help-match help-?-match page-match)
-      (ess-help-r--check-last-help-type)
       (cond (help-match
              (ess-display-help-on-object help-match)
              (process-send-string proc "\n"))
             (help-?-match
-             (ess-help-r--display-help-? proc string help-?-match)
+             (ess-help-r--display-help-? string help-?-match)
              (process-send-string proc "\n"))
             (page-match
              (switch-to-buffer-other-window
               (ess-command (concat page-match "\n")
                            (get-buffer-create (concat page-match ".rt"))))
-             (R-transcript-mode)
+             (ess-r-transcript-mode)
              (process-send-string proc "\n")))
       t)))
 
-(defun ess-help-r--display-help-? (proc string help-?-match)
+(defun ess-help-r--display-help-? (string help-?-match)
   (cond ((string-match "\\?\\?\\(.+\\)" help-?-match)
          (ess--display-indexed-help-page (concat help-?-match "\n")
                                          "^\\([^ \t\n]+::[^ \t\n]+\\)[ \t\n]+"
@@ -1312,7 +1321,7 @@ If it changes, we flush the cache.")
 
 (defun ess-help-r--sanitize-topic (string)
   "Enclose help topic STRING into `` to avoid ?while ?if etc hangs."
-  (if (string-match "\\([^:]*:+\\)\\(.*\\)$" string) ; treat foo::bar corectly
+  (if (string-match "\\([^:]*:+\\)\\(.*\\)$" string) ; treat foo::bar correctly
       (format "%s`%s`" (match-string 1 string) (match-string 2 string))
     (format "`%s`" string)))
 
@@ -1324,69 +1333,69 @@ If it changes, we flush the cache.")
     (or (ess-help-r--process-help-input proc string)
         (inferior-ess-input-sender proc string))))
 
-(defun inferior-ess-r-load-ESSR ()
-  "Load/INSTALL/Update ESSR."
-  (let* ((pkg-dir (expand-file-name "ESSR" ess-etc-directory))
-         (src-dir (expand-file-name "R" pkg-dir)))
-    (if (not (or (and (boundp 'ess-remote) ess-remote)
-                 (file-remote-p (ess-get-process-variable 'default-directory))))
-        (inferior-ess-r-load-ESSR--local pkg-dir src-dir)
-      (inferior-ess-r-load-ESSR--remote pkg-dir src-dir))))
+(defun ess-r-load-ESSR ()
+  "Load ESSR functionality."
+  (cond
+   ((file-remote-p (ess-get-process-variable 'default-directory))
+    (if (eq ess-r-fetch-ESSR-on-remotes t)
+        (ess-r--fetch-ESSR-remote)
+      (ess-r--load-ESSR-remote)))
+   ((and (bound-and-true-p ess-remote))
+    (if ess-r-fetch-ESSR-on-remotes
+        (ess-r--fetch-ESSR-remote)
+      (ess-r--load-ESSR-remote t)))
+   (t (ess-r--load-ESSR-local))))
 
-(defun inferior-ess-r-load-ESSR--local (pkg-dir src-dir)
-  (let ((cmd (format "local({
+(defun ess-r--load-ESSR-local ()
+  (let* ((src-dir (expand-file-name "ESSR/R" ess-etc-directory))
+         (cmd (format "local({
                           source('%s/.load.R', local=TRUE) #define load.ESSR
-                          load.ESSR('%s')
+                          .ess.load.ESSR('%s')
                       })\n"
-                     src-dir src-dir)))
-    (ess-write-to-dribble-buffer (format "load-ESSR cmd:\n%s\n" cmd))
+                      src-dir src-dir)))
     (with-current-buffer (ess-command cmd)
       (let ((msg (buffer-string)))
         (when (> (length msg) 1)
-          (message (format "load ESSR: %s" msg)))))))
+          (message (format "Messages while loading ESSR: %s" msg)))))))
 
-(defun inferior-ess-r-load-ESSR--remote (pkg-dir src-dir)
-  (let* ((verfile (expand-file-name "VERSION" pkg-dir))
-         (loadremote (expand-file-name "LOADREMOTE" pkg-dir))
-         (version (if (file-exists-p verfile)
-                      (with-temp-buffer
-                        (insert-file-contents verfile)
-                        (buffer-string))
-                    (error "Cannot find ESSR source code")))
-         (r-load-code (with-temp-buffer
-                        (insert-file-contents loadremote)
-                        (buffer-string))))
-    (ess-write-to-dribble-buffer (format "version file: %s\nloadremote file: %s\n"
-                                         verfile loadremote))
-    (unless (ess-boolean-command (format r-load-code version) nil 0.1)
-      (let ((errmsg (with-current-buffer " *ess-command-output*" (buffer-string)))
-            (files (directory-files src-dir t "\\.R$")))
-        (ess-write-to-dribble-buffer (format "error loading ESSR.rda: \n%s\n" errmsg))
-        ;; should not happen, unless extrem conditions (ancient R or failed download))
-        (message "Failed to download ESSR.rda (see *ESS* buffer). Injecting ESSR code from local machine")
-        (ess-command (format ".ess.ESSRversion <- '%s'\n" version)) ; cannot do this at R level
-        (mapc #'ess--inject-code-from-file files)))))
+(defun ess-r--load-ESSR-remote (&optional chunked)
+  (ess-command (format ".ess.ESSRversion <- '%s'\n" essr-version))
+  (with-temp-message "Loading ESSR into remote ..."
+    (let ((src-dir (expand-file-name "ESSR/R" ess-etc-directory)))
+      (dolist (file (directory-files src-dir t "\\.R$"))
+        (ess--inject-code-from-file file chunked)))))
 
-(ess-defmethod R ess-quit (&optional no-save)
-  (let (cmd
+(defun ess-r--fetch-ESSR-remote ()
+  (let ((loader (ess-file-content (expand-file-name "ESSR/LOADREMOTE" ess-etc-directory))))
+    (unless (ess-boolean-command (format loader essr-version) nil 0.1)
+      (let* ((errmsg (with-current-buffer " *ess-command-output*" (buffer-string)))
+             (src-dir (expand-file-name "ESSR/R" ess-etc-directory))
+             (files (directory-files src-dir t "\\.R$")))
+        (message (format "Couldn't load ESSR.rds. Injecting from local.\n Error: %s\n" errmsg))
+        (ess-r--load-ESSR-remote)))))
+
+(cl-defmethod ess-quit--override (arg &context (ess-dialect "R"))
+  "With ARG, do not offer to save the workspace."
+  (let ((cmd (format "base::q('%s')\n" (if arg "no" "default")))
         (sprocess (ess-get-process ess-current-process-name)))
     (when (not sprocess) (error "No ESS process running"))
     (ess-cleanup)
-    (setq cmd (format "base::q('%s')\n" (if no-save "no" "default")))
-    (goto-char (marker-position (process-mark sprocess)))
-    (process-send-string sprocess cmd)))
+    (ess-send-string sprocess cmd t)))
 
 (defcustom inferior-ess-r-reload-hook nil
   "Hook run when reloading the R inferior buffer."
   :type 'hook
   :group 'ess-R)
 
-(ess-defmethod R inferior-ess-reload (&optional start-args)
-  (run-ess-r start-args)
+(cl-defmethod inferior-ess-reload--override (start-name start-args &context (ess-dialect "R"))
+  "Call `run-ess-r' with START-ARGS.
+Then run `inferior-ess-r-reload-hook'."
+  (let ((inferior-ess-r-program start-name))
+    (run-ess-r start-args))
   (run-hooks 'inferior-ess-r-reload-hook))
 
 (defun inferior-ess-r-force (&optional prompt force no-autostart ask-if-1)
-  (setq ess-dialect "R")
+  (setq-local ess-dialect "R")
   (ess-force-buffer-current prompt force no-autostart ask-if-1))
 
 
@@ -1399,25 +1408,25 @@ If it changes, we flush the cache.")
 (defun ess-r-indent-line ()
   "Indent current line as ESS R code.
 Return the amount the indentation changed by."
-  (let ((indent (ess-calculate-indent nil))
-        beg shift-amt
-        (case-fold-search nil)
-        (pos (- (point-max) (point))))
-    (beginning-of-line)
-    (setq beg (point))
-    (skip-chars-forward " \t")
-    (setq shift-amt (- indent (current-column)))
-    (if (zerop shift-amt)
-        (if (> (- (point-max) pos) (point))
-            (goto-char (- (point-max) pos)))
-      (delete-region beg (point))
-      (indent-to indent)
-      ;; If initial point was within line's indentation,
-      ;; position after the indentation.
-      ;; Else stay at same point in text.
-      (when (> (- (point-max) pos) (point))
-        (goto-char (- (point-max) pos))))
-    shift-amt))
+  (when-let ((indent (ess-calculate-indent)))
+    (let ((case-fold-search nil)
+          (pos (- (point-max) (point)))
+          beg shift-amt)
+      (beginning-of-line)
+      (setq beg (point))
+      (skip-chars-forward " \t")
+      (setq shift-amt (- indent (current-column)))
+      (if (zerop shift-amt)
+          (if (> (- (point-max) pos) (point))
+              (goto-char (- (point-max) pos)))
+        (delete-region beg (point))
+        (indent-to indent)
+        ;; If initial point was within line's indentation,
+        ;; position after the indentation.
+        ;; Else stay at same point in text.
+        (when (> (- (point-max) pos) (point))
+          (goto-char (- (point-max) pos))))
+      shift-amt)))
 
 (defun ess-r-indent-exp ()
   (save-excursion
@@ -1468,7 +1477,7 @@ Return the amount the indentation changed by."
             (append (cdr ess-prefixed-block-patterns)
                     '("}?[ \t]*else")))))
 
-(defun ess-calculate-indent (&optional parse-start)
+(defun ess-calculate-indent ()
   "Return appropriate indentation for current line as ESS code.
 In usual case returns an integer: the column to indent to.
 Returns nil if line starts inside a string, t if in a comment."
@@ -1478,7 +1487,7 @@ Returns nil if line starts inside a string, t if in a comment."
            (state (syntax-ppss))
            (containing-sexp (cadr state))
            (prev-containing-sexp (car (last (butlast (nth 9 state))))))
-      (ess-back-to-indentation)
+      (back-to-indentation)
       (cond
        ;; Strings
        ((ess-inside-string-p)
@@ -1535,7 +1544,7 @@ Returns nil if line starts inside a string, t if in a comment."
     (let ((indent (save-excursion
                     (ess-calculate-indent--args)))
           (unindent (progn (skip-chars-forward " \t")
-                           ;; return number of skiped chars
+                           ;; return number of skipped chars
                            (skip-chars-forward ", \t"))))
       (- indent unindent))))
 
@@ -1620,7 +1629,7 @@ Returns nil if line starts inside a string, t if in a comment."
                (looking-at "{")
                (progn
                  (forward-line)
-                 (ess-back-to-indentation)
+                 (back-to-indentation)
                  (/= (line-number-at-pos) start-line))
                (not (looking-at "[ \t]*\\(#\\|$\\)"))
                (save-excursion
@@ -1636,7 +1645,7 @@ Returns nil if line starts inside a string, t if in a comment."
              (goto-char containing-sexp)
              (ess-block-opening-p)
              (equal (point) (save-excursion
-                              (ess-back-to-indentation)
+                              (back-to-indentation)
                               (point))))
         (+ (current-column) offset))))))
 
@@ -1832,11 +1841,10 @@ Returns nil if line starts inside a string, t if in a comment."
          (from-line (progn
                       (goto-char (1+ (or from containing-sexp)))
                       (line-number-at-pos)))
-         (prev-pos (1- (point)))
          max-col)
     (while (< (line-number-at-pos) to-line)
       (forward-line)
-      (ess-back-to-indentation)
+      (back-to-indentation)
       ;; Ignore the line with the function call, the line to be
       ;; indented, and empty lines.
       (unless (or (>= (line-number-at-pos) to-line)
@@ -1877,7 +1885,7 @@ Returns nil if line starts inside a string, t if in a comment."
                      (looking-at "### "))
           (setq max-col (min max-col (current-column))))
         (forward-line)
-        (ess-back-to-indentation)))
+        (back-to-indentation)))
     max-col))
 
 (defun ess-calculate-indent--prefixed-block-curly ()
@@ -1900,9 +1908,7 @@ Returns nil if line starts inside a string, t if in a comment."
 (defun ess-calculate-indent--continued ()
   "If a continuation line, return an indent of this line, otherwise nil."
   (save-excursion
-    (let* ((start-line (line-number-at-pos))
-           (prev-pos 0)
-           (cascade (eq (ess-offset-type 'continued) 'cascade))
+    (let* ((cascade (eq (ess-offset-type 'continued) 'cascade))
            (climbed (ess-climb-continuations cascade))
            max-col)
       (when climbed
@@ -1990,7 +1996,7 @@ Returns nil if line starts inside a string, t if in a comment."
               ;; Jump over comments
               ((looking-at "#")
                (forward-line)
-               (ess-indent-line))
+               (funcall indent-line-function))
               (t
                (join-line 1))))
       (goto-char (ess-code-end-position)))
@@ -2061,8 +2067,6 @@ state.")
 
 (defun ess-fill-args (&optional style)
   (let ((start-pos (point-min))
-        (orig-col (current-column))
-        (orig-line (line-number-at-pos))
         (bounds (ess-args-bounds 'marker))
         ;; Set undo boundaries manually
         (undo-inhibit-record-point t)
@@ -2119,7 +2123,7 @@ state.")
     ;; at `=' sign
     (while (looking-at "[ \t]*[\n#]")
       (forward-line)
-      (ess-back-to-indentation))
+      (back-to-indentation))
     (setq start-pos (point))
     (while (and (< (current-column) fill-column)
                 (not (looking-at "[])]"))
@@ -2145,7 +2149,7 @@ state.")
             (ess-goto-line (1+ cur-line))
             (while (and (<= (line-number-at-pos) end-line)
                         (/= (point) (point-max)))
-              (ess-indent-line)
+              (funcall indent-line-function)
               (forward-line))))))
     (when (or (>= (current-column) fill-column)
               prefix-break
@@ -2158,7 +2162,7 @@ state.")
         (ess-jump-char ","))
       (cond ((looking-at "[ \t]*[#\n]")
              (forward-line)
-             (ess-indent-line)
+             (funcall indent-line-function)
              (setq last-newline nil))
             ;; With levels 2 and 3, closing delim goes on a newline
             ((looking-at "[ \t]*[])]")
@@ -2219,12 +2223,521 @@ state.")
 
 
 
+;;;*;;; Inferior R mode
+
+(defvar inferior-ess-r-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "\M-\r" #'ess-dirs)
+    (define-key map (kbd "C-c C-=") #'ess-cycle-assign)
+    (define-key map (kbd "C-c C-.") 'ess-rutils-map)
+    map)
+  "Keymap for `inferior-ess-r-mode'.")
+
+;; TOTHINK: Prevent string delimiting characters from messing up output in the
+;; inferior buffer
+(defvar inferior-ess-r-mode-syntax-table
+  (let ((table (copy-syntax-table ess-r-mode-syntax-table)))
+    (modify-syntax-entry ?% "." table)
+    (modify-syntax-entry ?\' "." table)
+    table)
+  "Syntax table for `inferior-ess-r-mode'.")
+
+(define-derived-mode inferior-ess-r-mode inferior-ess-mode "iESS"
+  "Major mode for interacting with inferior R processes."
+  :group 'ess-proc
+  (ess-setq-vars-local ess-r-customize-alist)
+  (setq-local ess-font-lock-keywords 'inferior-ess-r-font-lock-keywords)
+  (setq-local comint-process-echoes (eql ess-eval-visibly t))
+  (setq-local comint-prompt-regexp inferior-S-prompt)
+  (setq comint-input-sender 'inferior-ess-r-input-sender)
+  (remove-hook 'completion-at-point-functions 'ess-filename-completion 'local) ;; should be first
+  (add-hook 'completion-at-point-functions 'ess-r-object-completion nil 'local)
+  (add-hook 'completion-at-point-functions 'ess-filename-completion nil 'local)
+  (add-hook 'xref-backend-functions #'ess-r-xref-backend nil 'local)
+  ;; eldoc
+  (add-function :before-until (local 'eldoc-documentation-function)
+                #'ess-r-eldoc-function)
+  (when ess-use-eldoc (eldoc-mode))
+  ;; auto-complete
+  (ess--setup-auto-complete ess-r-ac-sources t)
+  ;; company
+  (ess--setup-company ess-r-company-backends t)
+  (setq comint-get-old-input #'inferior-ess-get-old-input)
+  (add-hook 'comint-input-filter-functions 'ess-search-path-tracker nil 'local))
+
+
+
+;;;*;;; R Help mode
+
+(defvar ess-r-help-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map (make-composed-keymap button-buffer-map
+                                                 ess-help-mode-map))
+    (define-key map "s<" #'beginning-of-buffer)
+    (define-key map "s>" #'end-of-buffer)
+    (define-key map "sa" #'ess-skip-to-help-section)
+    (define-key map "sd" #'ess-skip-to-help-section)
+    (define-key map "sD" #'ess-skip-to-help-section)
+    (define-key map "st" #'ess-skip-to-help-section)
+    (define-key map "se" #'ess-skip-to-help-section)
+    (define-key map "sn" #'ess-skip-to-help-section)
+    (define-key map "sr" #'ess-skip-to-help-section)
+    (define-key map "ss" #'ess-skip-to-help-section)
+    (define-key map "su" #'ess-skip-to-help-section)
+    (define-key map "sv" #'ess-skip-to-help-section)
+    map)
+  "Keymap for `ess-r-help-mode'.")
+
+(cl-defmethod ess--help-major-mode (&context (ess-dialect "R"))
+  (ess-r-help-mode))
+
+(define-derived-mode ess-r-help-mode ess-help-mode "R Help"
+  "Major mode for help buffers."
+  :group 'ess-help
+  (setq ess-dialect "R"
+        ess-help-sec-regex ess-help-r-sec-regex
+        ess-help-sec-keys-alist ess-help-r-sec-keys-alist ; TODO: Still necessary?
+        inferior-ess-help-command inferior-ess-r-help-command)
+  (ess-r-help-add-links))
+
+(defun ess-r-help-usage-objects ()
+  "Return a list of objects in the usage section for the current help buffer.
+In other words, if in the help buffer for \"qt\", return
+
+'((\"dt\" \"x\" \"df\" \"ncp\" \"log\")
+  (\"pt\" \"q\" \"df\" \"ncp\" \"lower.tail\" \"log.p\")
+  (\"qt\" \"p\" \"df\" \"ncp\" \"lower.tail\" \"log.p\")
+  (\"rt\" \"n\" \"df\" \"ncp\")).
+
+If the current buffer does not have a usage section, return nil."
+  (unless (derived-mode-p 'ess-r-help-mode)
+    (error "Not an R help buffer"))
+  (save-excursion
+    (save-restriction
+      (let (usage-objects)
+        (widen)
+        (goto-char (point-min))
+        ;; Narrow the buffer to just the "Usage" section
+        (when-let ((usage-beg (re-search-forward "^Usage:" nil t))
+                   (usage-end (re-search-forward "^[^[:space:]]" nil t)))
+          (forward-line -1)
+          (narrow-to-region usage-beg (point))
+          (goto-char (point-min))
+          ;; Match objects until a parens
+          (while (re-search-forward (rx bol (0+ whitespace) (not (syntax comment-delimiter))
+                                        (group (1+ (not (any "(")))))
+                                    usage-end t)
+            (push (match-string-no-properties 1) usage-objects)
+            ;; Skip past function arguments
+            (forward-list)))
+        (when usage-objects
+          ;; Get arguments:
+          (setq usage-objects
+                (mapcar (lambda (u) (cons u (ess-get-words-from-vector (concat "names(formals(" u "))\n"))))
+                        usage-objects)))
+        (nreverse usage-objects)))))
+
+(define-button-type 'ess-r-help-link
+  'follow-link t
+  'action (lambda (_) (ess-r-help-button-action)))
+
+(defun ess-r-help-button-action ()
+  "Display help for button at point."
+  (let ((text (get-text-property (point) 'ess-r-help-link-text)))
+    (ess-display-help-on-object text)))
+
+(defun ess-r-help-add-links ()
+  "Add links to the help buffer."
+  (let ((help-topics (when (ess-process-live-p)
+                       (ess-help-get-topics ess-local-process-name)))
+        (inhibit-read-only t)
+        (usage-objects (ess-flatten-list (ess-r-help-usage-objects))))
+    (save-excursion
+      ;; Search for fancy quotes only. If users have
+      ;; options(useFancyQuotes) set to something other than TRUE this
+      ;; probably won't work. If it's FALSE, R outputs ascii ', but
+      ;; searching through the whole buffer takes too long.
+      (while (re-search-forward "‘\\([^[:space:]]+?\\)’" nil t)
+        (let* ((text (match-string 1))
+               (text (if (string-match-p ".*()\\'" text)
+                         (substring text nil (- (length text) 2))
+                       text)))
+          (when (and (member text help-topics)
+                     (not (member text usage-objects))
+                     (not (member text usage-objects)))
+            (delete-region (match-beginning 0) (match-end 0))
+            (insert-text-button text
+                                'ess-r-help-link-text text
+                                'type 'ess-r-help-link
+                                'help-echo (format "mouse-2, RET: Help on %s" text))))))))
+
+(cl-defmethod ess--display-vignettes-override (all &context (ess-dialect "R"))
+  "Display R vignettes in ess-help-like buffer..
+With (prefix) ALL non-nil, use `vignette(*, all=TRUE)`, i.e.,
+from all installed packages, which can be very slow."
+  (inferior-ess-r-force)
+  (let* ((vslist (with-current-buffer
+                     (ess-command
+                      (format ".ess_vignettes(%s)\n" (if all "TRUE" "")))
+                   (goto-char (point-min))
+                   (when (re-search-forward "(list" nil t)
+                     (goto-char (match-beginning 0))
+                     (ignore-errors (eval (read (current-buffer)))))))
+         (proc-name ess-current-process-name)
+         (alist ess-local-customize-alist)
+         (remote (file-remote-p default-directory))
+         (buff (get-buffer-create (format "*[%s]vignettes*" ess-dialect)))
+         (inhibit-modification-hooks t)
+         (inhibit-read-only t))
+    (with-current-buffer buff
+      (setq buffer-read-only nil)
+      (delete-region (point-min) (point-max))
+      (ess-setq-vars-local (eval alist))
+      (setq ess-local-process-name proc-name)
+      (ess--help-major-mode)
+      (setq ess-help-sec-regex "^\\w+:$"
+            ess-help-type 'vignettes)
+      (set-buffer-modified-p 'nil)
+      (goto-char (point-min))
+      (dolist (el vslist)
+        (let ((pack (car el)))
+          (insert (format "\n\n%s:\n\n" (propertize pack 'face 'underline)))
+          (dolist (el2 (cdr el))
+            (let ((path (if remote
+                            (with-no-warnings
+                              ;; Have to wrap this in with-no-warnings because
+                              ;; otherwise the byte compiler complains about
+                              ;; calling tramp-make-tramp-file-name with an
+                              ;; incorrect number of arguments on Both 26+ and 25 emacses.
+                              (if (>= emacs-major-version 26)
+                                  (with-parsed-tramp-file-name default-directory nil
+                                    (tramp-make-tramp-file-name method user domain host port (nth 1 el2)))
+                                (with-parsed-tramp-file-name default-directory nil
+                                  (tramp-make-tramp-file-name method user host (nth 1 el2)))))
+                          (nth 1 el2))))
+              (insert-text-button "Pdf"
+                                  'mouse-face 'highlight
+                                  'action (if remote
+                                              #'ess--action-open-in-emacs
+                                            #'ess--action-R-open-vignette)
+                                  'follow-link t
+                                  'vignette (file-name-sans-extension (nth 2 el2))
+                                  'package pack
+                                  'help-echo (concat path "/doc/" (nth 2 el2)))
+              (insert " ")
+              (insert-text-button "Rnw"
+                                  'mouse-face 'highlight
+                                  'action #'ess--action-open-in-emacs
+                                  'follow-link t
+                                  'help-echo (concat path "/doc/" (nth 3 el2)))
+              (insert " ")
+              (insert-text-button "R"
+                                  'mouse-face 'highlight
+                                  'action #'ess--action-open-in-emacs
+                                  'follow-link t
+                                  'help-echo (concat path "/doc/" (nth 4 el2)))
+              (insert (format "\t%s\n" (nth 0 el2)))))))
+      (goto-char (point-min))
+      (insert (propertize "\t\t**** Vignettes ****\n" 'face 'bold-italic))
+      (unless (eobp) (delete-char 1))
+      (setq buffer-read-only t))
+    (ess-display-help buff)))
+
+
+
+;; Support for listing R packages
+
+(define-obsolete-variable-alias 'ess-rutils-buf 'ess-r-package-menu-buf "ESS 19.04")
+(define-obsolete-variable-alias 'ess-rutils-mode-map 'ess-r-package-menu-mode-map "ESS 19.04")
+(define-obsolete-function-alias 'ess-rutils-mode #'ess-r-package-menu-mode "ESS 19.04")
+
+(defvar ess-rutils-map
+  (let ((map (define-prefix-command 'ess-rutils-map)))
+    (define-key map "l" #'ess-r-package-list-local-packages)
+    (define-key map "r" #'ess-r-package-list-available-packages)
+    (define-key map "u" #'ess-r-package-update-packages)
+    (define-key map "o" #'ess-rdired)
+    (define-key map "d" #'ess-change-directory)
+    (define-key map "H" #'ess-rutils-html-docs)
+    map))
+
+(easy-menu-define ess-rutils-mode-menu inferior-ess-mode-menu
+  "Package management."
+  '("Package management"
+    ["List local packages" ess-r-package-list-local-packages t]
+    ["List available packages" ess-r-package-list-available-packages t]
+    ["Update packages" ess-r-package-update-packages t]))
+
+(easy-menu-add-item inferior-ess-mode-menu nil ess-rutils-mode-menu "Utils")
+(easy-menu-add-item ess-mode-menu nil ess-rutils-mode-menu "Process")
+
+(defvar ess-r-package-menu-buf "*R packages*"
+  "Name of buffer to display R packages in.")
+
+(defvar ess-r-package-menu-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "l" #'ess-r-package-load)
+    (define-key map "i" #'ess-r-package-mark-install)
+    (define-key map "x" #'ess-r-package-execute-marks)
+    (define-key map "u" #'ess-r-package-unmark)
+    map)
+  "Keymap for `ess-rutils-mode'.")
+
+(define-derived-mode ess-r-package-menu-mode tabulated-list-mode "R utils"
+  "Major mode for `ess-rutils-local-pkgs' and `ess-rutils-repos-pkgs'."
+  :group 'ess-R
+  (setq ess-dialect "R")
+  (setq mode-name (concat "R packages: " ess-local-process-name))
+  (setq tabulated-list-padding 2)
+  (setq tabulated-list-format
+        `[("Name" 10 t)
+          ("Description" 50 nil)
+          ("Version" 5 t)])
+  (tabulated-list-init-header))
+
+(define-obsolete-function-alias 'ess-rutils-local-pkgs #'ess-r-package-list-local-packages "ESS 19.04")
+
+(defun ess-r-package-list-local-packages ()
+  "List all packages in all libraries."
+  (interactive)
+  (ess-r-package--list-packages (concat ".ess.rutils.ops <- options(width = 10000);"
+                                        "print(installed.packages(fields=c(\"Title\"))[, c(\"Title\", \"Version\")]);"
+                                        "options(.ess.rutils.ops); rm(.ess.rutils.ops);"
+                                        "\n")))
+
+(defun ess-r-package--list-packages (cmd)
+  "Use CMD to list packages."
+  (let ((process ess-local-process-name)
+        des-col-beginning des-col-end entries)
+    (with-current-buffer (ess-command cmd (get-buffer-create " *ess-rutils-pkgs*"))
+      (goto-char (point-min))
+      (delete-region (point) (1+ (point-at-eol)))
+      ;; Now we have a buffer with package name, description, and
+      ;; version. description and version are surrounded by quotes,
+      ;; description is separated by whitespace.
+      (re-search-forward "\\>[[:space:]]+")
+      (setq des-col-beginning (current-column))
+      (goto-char (point-at-eol))
+      ;; Unless someone has a quote character in their package version,
+      ;; two quotes back will be the end of the package description.
+      (dotimes (_ 2) (search-backward "\""))
+      (re-search-backward "[[:space:]]*")
+      (setq des-col-end (current-column))
+      (beginning-of-line)
+      (while (not (eobp))
+        (beginning-of-line)
+        (let* ((name (string-trim (buffer-substring
+                                   (point)
+                                   (progn (forward-char (1- des-col-beginning))
+                                          (point)))))
+               (description (string-trim (buffer-substring
+                                          (progn (forward-char 1)
+                                                 (point))
+                                          (progn (forward-char (- des-col-end des-col-beginning))
+                                                 (point)))))
+               (version (buffer-substring
+                         (progn (end-of-line)
+                                (search-backward "\"")
+                                (search-backward "\"")
+                                (forward-char 1)
+                                (point))
+                         (progn (search-forward "\"")
+                                (backward-char 1)
+                                (point)))))
+          (push
+           (list name
+                 `[(,name
+                    help-echo "mouse-2, RET: help on this package"
+                    action ess-rutils-help-on-package)
+                   ,description
+                   ,version])
+           entries)
+          (forward-line)))
+      (pop-to-buffer ess-rutils-buf)
+      (setq ess-local-process-name process)
+      (setq tabulated-list-entries entries)
+      (ess-r-package-menu-mode)
+      (tabulated-list-print))))
+
+(define-obsolete-function-alias 'ess-rutils-loadpkg #'ess-r-package-load "ESS 19.04")
+(defun ess-r-package-load ()
+  "Load package from a library."
+  (interactive)
+  (ess-execute (concat "library('" (tabulated-list-get-id)
+                       "', character.only = TRUE)")
+               'buffer))
+
+(defun ess-rutils-help-on-package (&optional _button)
+  "Display help on the package at point."
+  (interactive)
+  ;; FIXME: Should go to a help buffer
+  (ess-execute (concat "help(" (tabulated-list-get-id) ", package = '"
+                       (tabulated-list-get-id)"')")
+               'buffer))
+
+(define-obsolete-function-alias 'ess-rutils-repos-pkgs #'ess-r-package-list-available-packages "ESS 19.04")
+(defun ess-r-package-list-available-packages ()
+  "List available packages.
+Use the repositories as listed by getOptions(\"repos\") in the
+current R session."
+  (interactive)
+  (ess-r-package--list-packages (concat ".ess.rutils.ops <- options(width = 10000);"
+                                        "print(available.packages(fields=c(\"Title\"))[, c(\"Title\", \"Version\")]);"
+                                        "options(.ess.rutils.ops); rm(.ess.rutils.ops);"
+                                        "\n")))
+
+(define-obsolete-function-alias 'ess-rutils-mark-install #'ess-r-package-mark-install "ESS 19.04")
+(defun ess-r-package-mark-install ()
+  "Mark the current package for installing."
+  (interactive)
+  (tabulated-list-put-tag "i" t))
+
+(define-obsolete-function-alias 'ess-rutils-unmark #'ess-r-package-unmark "ESS 19.04")
+(defun ess-r-package-unmark ()
+  "Unmark the packages."
+  (interactive)
+  (tabulated-list-put-tag " " t))
+
+(define-obsolete-function-alias 'ess-rutils-execute-marks #'ess-r-package-execute-marks "ESS 19.04")
+(defun ess-r-package-execute-marks ()
+  "Perform all marked actions."
+  (interactive)
+  ;; Install
+  (save-excursion
+    (let ((cmd "install.packages(c(")
+          pkgs)
+      (goto-char (point-min))
+      (while (not (eobp))
+        (when (looking-at-p "i")
+          (setq pkgs (concat "\"" (tabulated-list-get-id) "\", " pkgs))
+          (tabulated-list-put-tag " "))
+        (forward-line))
+      (if pkgs
+          (progn (setq pkgs (substring pkgs 0 (- (length pkgs) 2)))
+                 (setq cmd (concat cmd pkgs "))"))
+                 (ess-execute cmd 'buffer))
+        (message "No packages marked for install")))))
+
+(define-obsolete-function-alias 'ess-rutils-update-pkgs #'ess-r-package-update-packages "ESS 19.04")
+(defun ess-r-package-update-packages (lib repo)
+  "Update packages in library LIB and repo REPO.
+This also uses checkBuilt=TRUE to rebuild installed packages if
+needed."
+  (interactive
+   (list (ess-completing-read "Library to update: " (ess-get-words-from-vector
+                                                     "as.character(.libPaths())\n"))
+         (ess-completing-read "Repo: " (ess-get-words-from-vector
+                                        "as.character(getOption(\"repos\"))\n"))))
+  (ess-execute (format "update.packages(lib.loc='%s', repos='%s', ask=FALSE, checkBuilt=TRUE)" lib repo) 'buffer))
+
+(define-obsolete-function-alias 'ess-rutils-apropos #'ess-display-help-apropos "ESS 19.04")
+
+;; Miscellaneous helper functions
+
+(defun ess-rutils-rm-all ()
+  "Remove all R objects."
+  (interactive)
+  (when (y-or-n-p "Delete all objects? ")
+    (ess-execute "rm(list=ls())" 'buffer)))
+
+(defun ess-rutils-load-wkspc (file)
+  "Load workspace FILE into R."
+  (interactive "fFile with workspace to load: ")
+  (ess-execute (concat "load('" file "')") 'buffer))
+
+(defun ess-rutils-save-wkspc (file)
+  "Save FILE workspace as file.RData."
+  (interactive "FSave workspace to file (no extension): ")
+  (ess-execute (concat "save.image('" file ".RData')") 'buffer))
+
+(defun ess-rutils-quit ()
+  "Kill the ess-rutils buffer and return to the iESS buffer."
+  (interactive)
+  (ess-switch-to-end-of-ESS)
+  (kill-buffer ess-rutils-buf))
+
+(defun ess-rutils-html-docs (&optional remote)
+  "Use `browse-url' to navigate R html documentation.
+Documentation is produced by a modified help.start(), that
+returns the URL produced by GNU R's http server. If called with a
+prefix, the modified help.start() is called with update=TRUE. The
+optional REMOTE argument should be a string with a valid URL for
+the 'R_HOME' directory on a remote server (defaults to NULL)."
+  (interactive)
+  (let* ((update (if current-prefix-arg "update=TRUE" "update=FALSE"))
+         (remote (if (or (and remote (not (string= "" remote))))
+                     (concat "remote=" remote) "remote=NULL"))
+         (proc ess-local-process-name)
+         (rhtml (format ".ess_help_start(%s, %s)\n" update remote)))
+    (with-temp-buffer
+      (ess-command rhtml (current-buffer) nil nil nil (get-process proc))
+      (let* ((begurl (search-backward "http://"))
+             (endurl (search-forward "index.html"))
+             (url (buffer-substring-no-properties begurl endurl)))
+        (browse-url url)))))
+
+(defun ess-rutils-rsitesearch (string)
+  "Search the R archives for STRING, and show results using `browse-url'.
+If called with a prefix, options are offered (with completion)
+for matches per page, sections of the archives to search,
+displaying results in long or short formats, and sorting by any
+given field. Options should be separated by value of
+`crm-default-separator'."
+  (interactive "sSearch string: ")
+  (let ((site "https://search.r-project.org/cgi-bin/namazu.cgi?query=")
+        (okstring (replace-regexp-in-string " +" "+" string)))
+    (if current-prefix-arg
+        (let ((mpp (concat
+                    "&max="
+                    (completing-read
+                     "Matches per page: "
+                     '(("20" 1) ("30" 2) ("40" 3) ("50" 4) ("100" 5)))))
+              (format (concat
+                       "&result="
+                       (completing-read
+                        "Format: " '(("normal" 1) ("short" 2))
+                        nil t "normal" nil "normal")))
+              (sortby (concat
+                       "&sort="
+                       (completing-read
+                        "Sort by: "
+                        '(("score" 1) ("date:late" 2) ("date:early" 3)
+                          ("field:subject:ascending" 4)
+                          ("field:subject:decending" 5)
+                          ("field:from:ascending" 6) ("field:from:decending" 7)
+                          ("field:size:ascending" 8) ("field:size:decending" 9))
+                        nil t "score" nil "score")))
+              (restrict (concat
+                         "&idxname="
+                         (mapconcat
+                          'identity
+                          (completing-read-multiple
+                           "Limit search to: "
+                           '(("Rhelp02a" 1) ("functions" 2)
+                             ("docs" 3) ("Rhelp01" 4))
+                           nil t "Rhelp02a,functions,docs" nil
+                           "Rhelp02a,functions,docs") "&idxname="))))
+          (browse-url (concat site okstring mpp format sortby restrict)))
+      (browse-url (concat site okstring "&max=20&result=normal&sort=score"
+                          "&idxname=Rhelp02a&idxname=functions&idxname=docs")))))
+
+(defun ess-rutils-help-search (string)
+  "Search for STRING using help.search()."
+  (interactive "sString to search for? ")
+  (let ((proc ess-local-process-name))
+    (pop-to-buffer "foobar")
+    (ess-command (concat "help.search('" string "')\n")
+                 (current-buffer) nil nil nil (get-process proc))))
+
+(make-obsolete 'ess-rutils-rhtml-fn "overwrite .ess_help_start instead." "ESS 18.10")
+
+
 ;; Create functions that can be called for running different versions
 ;; of R.
 ;; FIXME: Should be set in ess-custom
 (setq ess-rterm-version-paths
       (ess-flatten-list
-       (ess-uniq-list
+       (delete-dups
         (if (not ess-directory-containing-R)
             (if (getenv "ProgramW6432")
                 (let ((P-1 (getenv "ProgramFiles(x86)"))
@@ -2258,6 +2771,8 @@ state.")
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("/Makevars\\(\\.win\\)?$" . makefile-mode))
+;;;###autoload
+(add-to-list 'auto-mode-alist '("DESCRIPTION$" . conf-colon-mode))
 
 (provide 'ess-r-mode)
 

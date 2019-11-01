@@ -36,10 +36,9 @@
 
 ;;; Code:
 
-(require 'ess)
+(require 'ess-mode)
 (require 'ess-inf)
 (require 'ess-s-lang)
-(require 'ess-dde)
 (require 'ess-trns)
 
 
@@ -76,23 +75,11 @@
      (ess-object-name-db-file          . "ess-sp6-namedb.el")
      (inferior-ess-program             . inferior-S+-program)
      (inferior-ess-help-command        . "help(\"%s\", pager=\"slynx -dump\", window=FALSE)\n")
-     (inferior-ess-help-filetype       . nil)
      (inferior-ess-search-list-command . "searchPaths()\n")
-
-     (ess-send-region-function         . #'ess-dde-send-region)
-     (ess-load-file-function           . #'ess-dde-load-file)
-     (ess-command-function             . #'ess-dde-command)
-     (ess-eval-linewise-function       . #'ess-dde-eval-linewise)
-     (ess-dump-object-function         . #'ess-dde-dump-object)
-     (ess-read-object-name-function    . #'ess-dde-read-object-name)
-     (ess-find-help-file-function      . #'ess-dde-find-help-file)
-     (ess-display-help-on-object-function . #'ess-dde-display-help-on-object)
 
      (ess-directory-function           . S+-directory-function)
      (ess-setup-directory-function     . S+-setup-directory-function)
-     (inferior-ess-start-args          . inferior-S+-start-args)
-     (ess-STERM                        . "iESS")
-     )
+     (ess-STERM                        . "iESS"))
    S+common-cust-alist)
 
   "Variables to customize for S+.")
@@ -124,15 +111,15 @@
   "Call 'Splus6', based on S version 4, from Bell Labs.
 New way to do it."
   (interactive)
-  (setq ess-customize-alist S+-customize-alist)
   (ess-write-to-dribble-buffer
    (format "\n(S+): ess-dialect=%s, buf=%s\n" ess-dialect (current-buffer)))
-  (inferior-ess)
-  (ess-command ess-S+--injected-code)
-  (if inferior-ess-language-start
+  (let ((inf-buf (inferior-ess nil S+-customize-alist)))
+    (ess-command ess-S+--injected-code)
+    (when inferior-ess-language-start
       (ess-eval-linewise inferior-ess-language-start))
-  (with-ess-process-buffer nil
-    (run-mode-hooks 'ess-S+-post-run-hook)))
+    (with-current-buffer inf-buf
+      (run-mode-hooks 'ess-S+-post-run-hook))
+    inf-buf))
 
 
 (defalias 'S+6-mode 'S+-mode)
@@ -140,16 +127,17 @@ New way to do it."
 (defun S+-mode (&optional proc-name)
   "Major mode for editing S+ source.  See `ess-mode' for more help."
   (interactive)
-  (setq ess-customize-alist S+-customize-alist)
-  (ess-mode S+-customize-alist proc-name)
+  (setq-local ess-local-customize-alist S+-customize-alist)
+  (ess-mode)
   (if (fboundp 'ess-add-toolbar) (ess-add-toolbar))
-  (if ess-imenu-use-S (ess-imenu-S)))
+  (setq imenu-generic-expression ess-imenu-S-generic-expression)
+  (when ess-imenu-use-S (imenu-add-to-menubar "Imenu-S")))
 
 (defalias 'S+6-transcript-mode 'S+-transcript-mode)
-(defun S+-transcript-mode ()
+(define-derived-mode S+-transcript-mode ess-transcript-mode "ESS S Transcript"
   "S-PLUS 6 transcript mode."
-  (interactive)
-  (ess-transcript-mode S+-customize-alist))
+  :syntax-table S-syntax-table
+  :group 'ess-S)
 
 (defvar ess-s-versions '("Splus")
   "List of partial strings for versions of S to access within ESS.
@@ -161,7 +149,7 @@ file \"Splus7\" is found and this variable includes the string
 version of S.
 If duplicate versions of the same program are found (which happens if
 the same path is listed on `exec-path' more than once), they are
-ignored by calling `ess-uniq-list'.
+ignored by calling `delete-dups'.
 Set this variable to nil to disable searching for other versions
 of S using this method.
 If you set this variable, you need to restart Emacs (and set this variable
@@ -179,7 +167,7 @@ created.  The functions will normally be placed on the menubar upon
 ESS initialization."
   (when ess-s-versions
     (let ((versions
-           (ess-uniq-list
+           (delete-dups
             (mapcar #'file-name-nondirectory
                     (apply #'nconc
                            (mapcar #'ess-find-exec-completions
@@ -197,11 +185,7 @@ ESS initialization."
           (easy-menu-add-item ess-mode-menu '("Start Process")
                               (cons "Other" new-menu)))))))
 ;; Define the runners
-(if ess-microsoft-p
-    (nconc
-     (ess-sqpe-versions-create ess-SHOME-versions) ;; 32-bit
-     (ess-sqpe-versions-create ess-SHOME-versions-64 "-64-bit")) ;; 64-bit
-  (ess-s-define-runners))
+(ess-s-define-runners)
 (define-obsolete-function-alias
   'ess-s-versions-create 'ess-s-define-runners "ESS 18.10")
 

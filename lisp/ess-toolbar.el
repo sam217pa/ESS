@@ -1,4 +1,4 @@
-;;; ess-toolbar.el --- Support for a toolbar in ESS.
+;;; ess-toolbar.el --- Support for a toolbar in ESS.  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1997--2009 A.J. Rossini, Richard M. Heiberger, Martin
 ;;      Maechler, Kurt Hornik, Rodney Sparapani, and Stephen Eglen.
@@ -31,7 +31,7 @@
 ;; This code is experimental. It has been tested only on Linux
 ;; machines.  All feedback appreciated.
 ;;
-;; If your emacs can support images, the ESS toolbar should be loaded.
+;; If your Emacs can support images, the ESS toolbar should be loaded.
 ;;
 ;; If you see a toolbar, but no icons, check out the value of
 ;; ess-icon-directory.
@@ -50,8 +50,7 @@
 
 ;;; Code:
 
-(require 'ess-utils)
-(require 'ess)
+(require 'ess-mode)
 
 (defgroup ess-toolbar nil
   "ESS: toolbar support."
@@ -72,7 +71,7 @@ The standard toolbar items are copied from the default toolbar."
   :type 'boolean)
 
 (defcustom ess-toolbar-global nil
-  "*Non-nil means that the ESS toolbar is available in all emacs buffers.
+  "*Non-nil means that the ESS toolbar is available in all Emacs buffers.
 Otherwise, the ESS toolbar is present only in R/S mode buffers.
 For beginners, this is probably better set to a non-nil value."
   :type 'boolean)
@@ -140,7 +139,8 @@ If `ess-icon-directory' is invalid, please report a bug.")
       (mapc #'ess-add-icon ess-toolbar-items))))
 
 (defun ess-add-icon (x)
-  "Add an ESS item to the Emacs toolbar."
+  "Add an ESS item to the Emacs toolbar.
+X should be a list, see `ess-toolbar-items' for the format."
   ;; By using tool-bar-add-item-from-menu instead of tool-bar-add-item
   ;; we get the tooltips "for free" from ess-mode-map.
   (tool-bar-add-item-from-menu (car x) (cadr x) ess-mode-map))
@@ -149,8 +149,8 @@ If `ess-icon-directory' is invalid, please report a bug.")
   "Add the ESS toolbar to a particular mode.
 The toolbar is added iff `ess-toolbar-global' is nil, else the toolbar
 is added globally when ess-toolbar.el is loaded."
-  (if (and ess-toolbar (not ess-toolbar-global))
-      (set (make-local-variable 'tool-bar-map) ess-toolbar)))
+  (when (and ess-toolbar (not ess-toolbar-global))
+    (setq-local tool-bar-map ess-toolbar)))
 
 ;; Make the toolbars.  Each toolbar is hopefully made only when this file
 ;; is loaded; we don't need it to be remade every time.
@@ -169,7 +169,7 @@ is added globally when ess-toolbar.el is loaded."
        (and (fboundp 'display-images-p) (display-images-p))
        ;; if above tests failed, give a warning.
        (progn
-         (message "Toolbar support for ESS not available in this emacs.")
+         (message "Toolbar support for ESS not available in this Emacs.")
          ;; Not sure if we want to delay startup of ESS.
          ;;(sit-for 2)
          ))

@@ -18,7 +18,7 @@ local({
     }
 })
 
-
+
 .ess_eval <- function(str, env = globalenv()) {
     ## don't remove; really need eval(parse(  here!!
     tryCatch(base::eval(base::parse(text=str), envir = env),
@@ -49,6 +49,7 @@ local({
     cat(out)
 }
 
+
 .ess_fn_pkg <- function(fn_name) {
     fn <- .ess_eval(fn_name)
     env_name <- base::environmentName(base::environment(fn))
@@ -85,30 +86,35 @@ local({
         fmls <- formals(args)
         fmls_names <- names(fmls)
         fmls <- gsub('\"', '\\\"',
-                     gsub("\\", "\\\\", as.character(fmls),fixed = TRUE),
+                     gsub("\\", "\\\\", as.character(fmls), fixed = TRUE),
                      fixed=TRUE)
         args_alist <-
             sprintf("'(%s)",
                     paste("(\"", fmls_names, "\" . \"", fmls, "\")",
                           sep = '', collapse = ' '))
         allargs <-
-            if(special) fmls_names
-            else tryCatch(gsub('=', '', utils:::functionArgs(funname, ''), fixed = TRUE),
+            if (special) fmls_names
+            else tryCatch(gsub(' ?= ?', '', utils:::functionArgs(funname, ''), fixed = FALSE),
                           error=function(e) NULL)
         allargs <- sprintf("'(\"%s\")",
                            paste(allargs, collapse = '\" "'))
-        envname <- environmentName(environment(fun))
-        if(envname == "R_GlobalEnv") envname <- ""
+        envname <-
+            if (is.primitive(fun)) "base"
+            else environmentName(environment(fun))
+        if (envname == "R_GlobalEnv") envname <- ""
         cat(sprintf('(list \"%s\" %s %s)\n',
                     envname, args_alist, allargs))
     }
 }
 
-.ess_get_completions <- function(string, end){
+
+.ess_get_completions <- function(string, end, suffix = " = ") {
+    oldopts <- utils::rc.options(funarg.suffix = suffix)
+    on.exit(utils::rc.options(oldopts))
     if(.ess.Rversion > '2.14.1'){
         comp <- compiler::enableJIT(0)
         op <- options(error=NULL)
-        on.exit({ options(op); compiler::enableJIT(comp) })
+        on.exit({ options(op); compiler::enableJIT(comp)}, add = TRUE)
     }
     utils:::.assignLinebuffer(string)
     utils:::.assignEnd(end)
@@ -158,9 +164,4 @@ local({
                                         ))
         i <- i + 1
     cat('\n\n', as.character(out), '\n')
-};
-
-
-## Local Variables:
-## eval: (ess-set-style 'RRR t)
-## End:
+}

@@ -63,7 +63,7 @@
     t))
 
 (defun ess-backward-char (&optional N)
-  (unless (= (point) (point-min))
+  (unless (bobp)
     (forward-char (- (or N 1)))
     t))
 
@@ -78,15 +78,6 @@ If POS is nil, return nil.  Otherwise return position itself."
   (save-excursion
     (ess-skip-blanks-forward newlines)
     (looking-at regex)))
-
-(defun ess-back-to-indentation ()
-  "Move point to the first non-whitespace character on this line.
-This non-interactive version of (back-to-indentation) should not
-be advised"
-  (beginning-of-line 1)
-  (skip-syntax-forward " " (line-end-position))
-  ;; Move back over chars that have whitespace syntax but have the p flag.
-  (backward-prefix-chars))
 
 (defmacro ess-save-excursion-when-nil (&rest body)
   (declare (indent 0)
@@ -111,7 +102,7 @@ be advised"
            (debug (&rest form)))
   `(save-excursion
      (goto-char indent-point)
-     (ess-back-to-indentation)
+     (back-to-indentation)
      (progn ,@body)))
 
 (defvar containing-sexp)
@@ -181,7 +172,7 @@ Cons cell containing the token type and string representation."
 
 (defun ess-climb-token--back ()
   (let* ((token-end (point))
-         (token-type (if (= (point) (point-min))
+         (token-type (if (bobp)
                          "buffer-start"
                        (ess-climb-token--operator)))
          (token-value (buffer-substring-no-properties (point) token-end)))
@@ -801,14 +792,14 @@ nil, return the prefix."
   "Skip blanks and newlines backward, taking end-of-line comments into account."
   (ess-any ((ess-skip-blanks-backward-1))
            ((when newlines
-              (ess-while (and (/= (point) (point-min))
+              (ess-while (and (not (bobp))
                               (= (point) (line-beginning-position)))
                 (forward-line -1)
                 (goto-char (ess-code-end-position))
                 (ess-skip-blanks-backward-1))))))
 
 (defun ess-skip-blanks-backward-1 ()
-  (and (/= (point) (point-min))
+  (and (not (bobp))
        (/= 0 (skip-syntax-backward " "))))
 
 (defun ess-skip-blanks-forward (&optional newlines)
@@ -820,7 +811,7 @@ nil, return the prefix."
                                     ;; Handles corner cases such as point being on last line
                                     (let ((orig-point (point)))
                                       (forward-line)
-                                      (ess-back-to-indentation)
+                                      (back-to-indentation)
                                       (> (point) orig-point)))
                               (skip-chars-forward " \t")
                               t))))))
@@ -1359,8 +1350,7 @@ expression."
 
 (defun ess-continuations-bounds (&optional marker)
   (save-excursion
-    (let ((orig-point (point))
-          (beg (progn
+    (let ((beg (progn
                  (ess-escape-continuations)
                  (point))))
       (when beg
@@ -1509,9 +1499,10 @@ without curly braces."
                           ,(skip-chars-backward "\"'")))
           (setq climbed t)))
       ;; Recurse if we find an indexing char
-      (when (memq (char-before) '(?$ ?@))
-        (forward-char -1)
-        (ess-climb-object))
+      (let ((tok (ess-token-before)))
+        (when (member (ess-token-type tok) '("$" "@" "::" ":::"))
+          (goto-char (ess-token-start tok))
+          (ess-climb-object)))
       climbed)))
 
 ;; Todo: split name and object climbing
@@ -1532,7 +1523,7 @@ without curly braces."
 
 (defun ess-jump-name ()
   (ess-save-excursion-when-nil
-    (let (climbed quote-char)
+    (let (climbed)
       (skip-chars-forward " \t")
       ;; Jump over backquoted names
       (cond ((and (eq (char-after) ?`)

@@ -66,8 +66,7 @@ environment variable."
   :type '(choice (const :tag "None" nil) file)
   :group 'shell)
 
-(make-variable-buffer-local 'msdos-minor-mode)
-(defvar msdos-minor-mode nil
+(defvar-local msdos-minor-mode nil
   "Non-nil if using msdos-minor mode as a minor mode of some other mode.")
 
 (defun msdos ()
@@ -150,7 +149,7 @@ d. strips ctrl-m from output.
   (set (make-local-variable 'comint-completion-addsuffix) '("\\" . " "))
   (setq comint-process-echoes t)
   (add-hook 'comint-output-filter-functions 'shell-strip-ctrl-m nil t)
-  (set-buffer-process-coding-system 'raw-text-dos 'raw-text-dos)
+  (set-process-coding-system (get-buffer-process (current-buffer)) 'raw-text-dos 'raw-text-dos)
   ;; buffer-process-coding-system is critical.
   )
 

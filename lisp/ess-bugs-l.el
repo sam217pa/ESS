@@ -1,4 +1,4 @@
-;;; ess-bugs-l.el --- ESS[BUGS] languages
+;;; ess-bugs-l.el --- ESS[BUGS] languages  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2006-2011 Rodney Sparapani
 
@@ -24,11 +24,8 @@
 
 ;;; Code:
 
-(require 'font-lock)
 (require 'shell)
-(require 'comint)
 (require 'ess-utils)
-(require 'ess-custom)
 (defvar ess-bugs-command)
 (defvar ess-bugs-chains)
 (defvar ess-jags-command)
@@ -46,7 +43,11 @@
   :prefix "ess-")
 
 (defcustom ess-bugs-batch-method
-  (if ess-microsoft-p (if (w32-shell-dos-semantics) 'dos 'sh) 'sh)
+  (if (and ess-microsoft-p
+           (fboundp 'w32-shell-dos-semantics)
+           (w32-shell-dos-semantics))
+      'dos
+    'sh)
   "Method used by `ess-bugs-batch'.
 The default is based on the value of the Emacs variable `system-type'
 and, on Windows machines, the function `w32-shell-dos-semantics'.
@@ -67,7 +68,7 @@ Users whose default is not 'sh, but are accessing a remote machine with
 
 (defcustom ess-bugs-batch-post-command
   (if (equal ess-bugs-batch-method 'sh) "&" " ")
-  "*ESS[BUGS]: Modifiers at the end of the batch BUGS command line."
+  "ESS[BUGS]: Modifiers at the end of the batch BUGS command line."
   :group 'ess-bugs
   :type  'string
   )
@@ -75,7 +76,7 @@ Users whose default is not 'sh, but are accessing a remote machine with
 (defcustom ess-bugs-batch-pre-command
   (if (equal ess-bugs-batch-method 'sh) "nohup nice time"
     (if ess-microsoft-p "start"))
-  "*ESS[BUGS]: Modifiers at the beginning of the batch BUGS command line."
+  "ESS[BUGS]: Modifiers at the beginning of the batch BUGS command line."
   :group 'ess-bugs
   :type  'string
   )
@@ -94,7 +95,7 @@ Users whose default is not 'sh, but are accessing a remote machine with
   )
 
 (defvar ess-bugs-batch-command ";"
-  "*ESS[BUGS]: The name of the command to run BUGS in batch mode."
+  "ESS[BUGS]: The name of the command to run BUGS in batch mode."
   )
 
 (defvar ess-bugs-file "."
@@ -125,7 +126,7 @@ Users whose default is not 'sh, but are accessing a remote machine with
   )
 
 (defcustom ess-bugs-mode-hook nil
-  "*ESS[BUGS]: List of functions to call upon entering mode."
+  "ESS[BUGS]: List of functions to call upon entering mode."
   :group 'ess-bugs
   :type 'hook)
 
@@ -135,26 +136,25 @@ Users whose default is not 'sh, but are accessing a remote machine with
 (defvar ess-bugs-stats-vars " "
   "ESS[BUGS]: List of BUGS variables to be summarized with statistics.")
 
-(defvar ess-bugs-mode-map nil
+(defvar ess-bugs-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (quote [f2])  #'ess-revert-wisely)
+    (define-key map "\C-c\C-c" #'ess-bugs-next-action)
+    (define-key map "=" #'ess-bugs-hot-arrow)
+    (define-key map "_" #'ess-bugs-hot-arrow)
+    map)
   "ESS[BUGS]: Keymap for mode.")
 
-(if ess-bugs-mode-map nil (setq ess-bugs-mode-map (make-keymap)))
-(define-key ess-bugs-mode-map (quote [f2])  'ess-revert-wisely)
-                                        ;(define-key ess-bugs-mode-map (quote [f12]) 'ess-bugs-next-action)
-(define-key ess-bugs-mode-map "\C-c\C-c" 'ess-bugs-next-action)
-(define-key ess-bugs-mode-map "=" 'ess-bugs-hot-arrow)
-(define-key ess-bugs-mode-map "_" 'ess-bugs-hot-arrow)
-
-(defvar ess-bugs-syntax-table nil
+(defvar ess-bugs-syntax-table
+  (let ((table (make-syntax-table)))
+    (modify-syntax-entry ?\\ "." table)
+    (modify-syntax-entry ?# "<" table)
+    (modify-syntax-entry ?\n ">" table)
+    (modify-syntax-entry ?\( "()" table)
+    (modify-syntax-entry ?\)  ")(" table)
+    (modify-syntax-entry ?. "w" table)
+    table)
   "ESS[BUGS]: Syntax table for mode.")
-
-(if ess-bugs-syntax-table nil (setq ess-bugs-syntax-table (make-syntax-table)))
-(modify-syntax-entry ?\\ "."  ess-bugs-syntax-table)
-(modify-syntax-entry ?#  "<"  ess-bugs-syntax-table)
-(modify-syntax-entry ?\n ">"  ess-bugs-syntax-table)
-(modify-syntax-entry ?\(  "()" ess-bugs-syntax-table)
-                     (modify-syntax-entry ?\)  ")(" ess-bugs-syntax-table)
-(modify-syntax-entry ?.  "w"  ess-bugs-syntax-table)
 
 (defun ess-bugs-file ()
   "ESS[BUGS]: Set internal variables dealing with BUGS files.
@@ -181,12 +181,12 @@ and `ess-bugs-file-dir'."
 
 (defun ess-bugs-exit-notify-sh (string)
   "ESS[BUGS]: Detect completion or failure of submitted job and notify the user."
-  (let* ((exit-done "\\[[0-9]+\\]\\ *\\+*\\ *\\(Exit\\|Done\\)[^\r\n]*")
+  (let* ((exit-done "\\[[0-9]+\\] *\\+* *\\(Exit\\|Done\\)[^\r\n]*")
          (beg (string-match exit-done string)))
-    (if beg (message (substring string beg (match-end 0))))))
+    (if beg (message "%s" (substring string beg (match-end 0))))))
 
 (defun ess-bugs-hot-arrow ()
-  "*ESS[BUGS]: Substitute <- for = key press"
+  "ESS[BUGS]: Substitute <- for = key press"
   (interactive)
   (insert " <- "))
 
@@ -245,12 +245,12 @@ and `ess-bugs-file-dir'."
   :prefix "ess-")
 
 (defcustom ess-bugs-shell-buffer-name "BUGS"
-  "*ESS[BUGS-Shell]: The name of the BUGS-Shell buffer."
+  "ESS[BUGS-Shell]: The name of the BUGS-Shell buffer."
   :group 'ess-bugs-shell
   :type  'string)
 
 (defcustom ess-bugs-shell-command "OpenBUGS"
-  "*ESS[BUGS-Shell]: The name of the command to run BUGS interactively.
+  "ESS[BUGS-Shell]: The name of the command to run BUGS interactively.
 
 Set to the name of the batch BUGS script that comes with ESS or
 to the name of BUGS command. Make sure it is in your PATH or
@@ -259,19 +259,19 @@ add path to the command name."
   :type  'string)
 
 (defcustom ess-bugs-shell-default-output-file-root "bugs"
-  "*ESS[BUGS-Shell]: Default value for the root of output files."
+  "ESS[BUGS-Shell]: Default value for the root of output files."
   :group 'ess-bugs-shell
   :type  'string)
 
 (defcustom ess-bugs-shell-mode-hook nil
-  "*ESS[BUGS-Shell]: List of functions to call upon entering mode."
+  "ESS[BUGS-Shell]: List of functions to call upon entering mode."
   :group 'ess-bugs-shell
   :type 'hook)
 
 (defun ess-bugs-shell ()
   "Create a buffer with BUGS running as a subprocess."
   (interactive)
-  (switch-to-buffer (concat "*" ess-bugs-shell-buffer-name "*"))
+  (pop-to-buffer-same-window (concat "*" ess-bugs-shell-buffer-name "*"))
   (make-comint ess-bugs-shell-buffer-name ess-bugs-shell-command nil
                ess-bugs-default-bins ess-bugs-shell-default-output-file-root)
   (comint-mode)

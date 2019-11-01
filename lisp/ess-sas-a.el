@@ -25,7 +25,7 @@
 
 ;;; Code:
 
-(require 'ess)
+(require 'ess-mode)
 ;; Silence the byte compiler
 ;; FIXME: This is a lot, perhaps they can be moved?
 (defvar sas-indent-width)
@@ -46,7 +46,7 @@
   "Full path-name of the sas file to perform operations on.")
 
 (defcustom ess-sas-data-view-libname " "
-  "*SAS code to define a library for `ess-sas-data-view-fsview'
+  "SAS code to define a library for `ess-sas-data-view-fsview'
 or `ess-sas-data-view-insight'."
   :group 'ess-sas
   :type  'string)
@@ -54,30 +54,31 @@ or `ess-sas-data-view-insight'."
 (defcustom ess-sas-data-view-submit-options
   (if ess-microsoft-p "-noenhancededitor -nosysin -log NUL:"
     "-nodms -nosysin -log /dev/null -terminal")
-  "*The command-line options necessary for your OS with respect to
+  "The command-line options necessary for your OS with respect to
 `ess-sas-data-view-fsview' and `ess-sas-data-view-insight'."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-data-view-fsview-command "; proc fsview data="
-  "*SAS code to open a SAS dataset with `ess-sas-data-view-fsview'."
+  "SAS code to open a SAS dataset with `ess-sas-data-view-fsview'."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-data-view-fsview-statement " "
-  "*SAS code to perform a PROC FSVIEW statement with `ess-sas-data-view-fsview'."
+  "SAS code to perform a PROC FSVIEW statement with `ess-sas-data-view-fsview'."
   :group 'ess-sas
   :type  'string)
+
 
 (make-variable-buffer-local 'ess-sas-data-view-fsview-statement)
 
 (defcustom ess-sas-data-view-insight-command "; proc insight data="
-  "*SAS code to open a SAS dataset with `ess-sas-data-view-insight'."
+  "SAS code to open a SAS dataset with `ess-sas-data-view-insight'."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-data-view-insight-statement " "
-  "*SAS code to perform a PROC FSVIEW statement with `ess-sas-data-view-insight'."
+  "SAS code to perform a PROC FSVIEW statement with `ess-sas-data-view-insight'."
   :group 'ess-sas
   :type  'string)
 
@@ -85,7 +86,7 @@ or `ess-sas-data-view-insight'."
 
 (defcustom ess-sas-graph-view-suffix-regexp
   "[.]\\([eE]?[pP][sS]\\|[pP][dD][fF]\\|[gG][iI][fF]\\|[jJ][pP][eE]?[gG]\\|[tT][iI][fF][fF]?\\)"
-  "*GSASFILE suffix regexp."
+  "GSASFILE suffix regexp."
   :group 'ess-sas
   :type  'string)
 
@@ -115,17 +116,12 @@ or `ess-sas-data-view-insight'."
           (setq ess-tmp-alist (list (cons "[eE]?[pP][sS]" ess-tmp-ps)
                                     (cons "[pP][dD][fF]" ess-tmp-ps))))))
 
-  "*Associate file name extensions with graphics image file viewers."
+  "Associate file name extensions with graphics image file viewers."
   :group 'ess-sas
   :type  '(choice (const nil) (alist)))
 
-;;(defcustom ess-sas-smart-back-tab nil
-;;    "*Set to t to make C-TAB insert an end/%end; statement to close a block."
-;;    :group 'ess-sas
-;;)
-
 (defcustom ess-sas-log-max 0
-  "*If >0 and .log file exceeds this many bytes, just \"refresh\" this many bytes."
+  "If >0 and .log file exceeds this many bytes, just \"refresh\" this many bytes."
   :group 'ess-sas
   :type  'integer)
 
@@ -135,28 +131,28 @@ or `ess-sas-data-view-insight'."
   :type  'string)
 
 (defcustom ess-sas-shell-buffer "*shell*"
-  "*Name that you want to use for the shell buffer; buffer-local."
+  "Name that you want to use for the shell buffer; buffer-local."
   :group 'ess-sas
   :type  'string)
 
 (make-variable-buffer-local 'ess-sas-shell-buffer)
 
 (defcustom ess-sas-shell-buffer-remote-host nil
-  "*Remote host that you want to open a shell on."
+  "Remote host that you want to open a shell on."
   :group 'ess-sas
   :type '(choice (const nil) string))
 
 (make-variable-buffer-local 'ess-sas-shell-buffer-remote-host)
 
 (defcustom ess-sas-shell-buffer-remote-init "ssh"
-  "*Command to open a shell on a remote host."
+  "Command to open a shell on a remote host."
   :group 'ess-sas
   :type  'string)
 
 (make-variable-buffer-local 'ess-sas-shell-buffer-remote-init)
 
 (defcustom ess-sas-submit-mac-virtual-pc nil
-  "*Non-nil means that you want to run Windows SAS in a
+  "Non-nil means that you want to run Windows SAS in a
 Virtual PC emulator on your Mac; buffer-local."
   :group 'ess-sas
   :type 'boolean)
@@ -164,25 +160,25 @@ Virtual PC emulator on your Mac; buffer-local."
 (make-variable-buffer-local 'ess-sas-submit-mac-virtual-pc)
 
 (defcustom sas-program "sas"
-  "*Command to invoke SAS, default for buffer-local `ess-sas-submit-command'."
+  "Command to invoke SAS, default for buffer-local `ess-sas-submit-command'."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-submit-command sas-program
-  "*Command to invoke SAS in batch; buffer-local."
+  "Command to invoke SAS in batch; buffer-local."
   :group 'ess-sas
   :type  'string)
 
 (make-variable-buffer-local 'ess-sas-submit-command)
 
 (defcustom ess-sas-submit-command-options "-rsasuser"
-  "*Options to pass to SAS in batch; buffer-local."
+  "Options to pass to SAS in batch; buffer-local."
   :group 'ess-sas
   :type  'string)
 
 (make-variable-buffer-local 'ess-sas-submit-command-options)
 
-(defvar ess-sas-submit-method
+(defvar-local ess-sas-submit-method
   (if (and (and ess-microsoft-p
                 (fboundp 'w32-shell-dos-semantics))
            (w32-shell-dos-semantics))
@@ -203,19 +199,17 @@ Users accessing a remote machine with `telnet', `rlogin', `ssh', etc.,
 should set this variable to 'sh regardless of their local shell
 (since their remote shell is 'sh).")
 
-(make-variable-buffer-local 'ess-sas-submit-method)
-
 (defcustom ess-sas-graph-view-viewer-default
   (if ess-microsoft-p "explorer"
     (if (equal ess-sas-submit-method 'sh) "sdtimage"))
-  "*Default graphics image file viewer."
+  "Default graphics image file viewer."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-submit-post-command
   (if (equal ess-sas-submit-method 'sh) "&"
     (if ess-microsoft-p "-icon"))
-  "*Command-line statement to post-modify SAS invocation"
+  "Command-line statement to post-modify SAS invocation."
   :group 'ess-sas
   :type  'string)
 
@@ -250,17 +244,17 @@ should set this variable to 'sh regardless of their local shell
                "nohup nice +6")
               (t "nohup nice")))
     (if ess-microsoft-p "start"))
-  "*Command-line statement to precede SAS invocation, e.g. start or nohup"
+  "Command-line statement to precede SAS invocation, e.g. start or nohup."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-suffix-1 "txt"
-  "*The first suffix to associate with SAS."
+  "The first suffix to associate with SAS."
   :group 'ess-sas
   :type  'string)
 
 (defcustom ess-sas-suffix-2 "csv"
-  "*The second suffix to associate with SAS."
+  "The second suffix to associate with SAS."
   :group 'ess-sas
   :type  'string)
 
@@ -271,7 +265,7 @@ should set this variable to 'sh regardless of their local shell
           (if ess-sas-suffix-2 (concat
                                 "\\|" (downcase ess-sas-suffix-2) "\\|" (upcase ess-sas-suffix-2)))
           "\\)")
-  "*Regular expression for SAS suffixes."
+  "Regular expression for SAS suffixes."
   :group 'ess-sas
   :type  'string)
 
@@ -282,7 +276,7 @@ should set this variable to 'sh regardless of their local shell
   :group 'ess-sas)
 
 (defcustom ess-sas-temp-root "-temp"
-  "*Appended to root name of the temporary .sas file for `ess-sas-submit-region'."
+  "Appended to root name of the temporary .sas file for `ess-sas-submit-region'."
   :group 'ess-sas
   :type  'string)
 
@@ -296,7 +290,7 @@ file \"sas8\" is found and this variable includes the string
 version of SAS.
 If duplicate versions of the same program are found (which happens if
 the same path is listed on `exec-path' more than once), they are
-ignored by calling `ess-uniq-list'.
+ignored by calling `delete-dups'.
 If you set this variable, you need to restart Emacs (and set this variable
 before ess-site is loaded) for it to take effect.")
 
@@ -315,7 +309,7 @@ in SAS-mode and related modes.")
 
 
 (defun ess-ebcdic-to-ascii-search-and-replace ()
-  "*Search and replace EBCDIC text with ASCII equivalents."
+  "Search and replace EBCDIC text with ASCII equivalents."
   (interactive)
   (let ((ess-tmp-dd (executable-find "dd")) (ess-tmp-recode (executable-find "recode"))
         (ess-tmp-util nil) (ess-tmp-util-args nil))
@@ -335,11 +329,10 @@ in SAS-mode and related modes.")
 
 (defun ess-exit-notify-sh (string)
   "Detect completion or failure of submitted job and notify the user."
-                                        ;(let* ((exit-done "\\[[0-9]+\\]\\ *\\+*\\ *\\(Exit\\|Done\\).*$")
-  (let* ((exit-done "\\[[0-9]+\\]\\ *\\+*\\ *\\(Exit\\|Done\\)[^\r\n]*") ; GNU Emacs needs this
+  (let* ((exit-done "\\[[0-9]+\\] *\\+* *\\(Exit\\|Done\\)[^\r\n]*")
          (beg (string-match exit-done string)))
     (if beg
-        (message (substring string beg (match-end 0))))))
+        (message "%s" (substring string beg (match-end 0))))))
 
 
 (defun ess-sas-append-log ()
@@ -467,9 +460,12 @@ return new alist whose car is the new pair and cdr is ALIST.
       (cons (cons item value) alist))))
 
 (defun ess-sas-create-local-variables-alist (&optional file-or-buffer)
-  "Create an alist of local variables from file-or-buffer, use the
-current buffer if nil."
-  (if file-or-buffer (set-buffer (ess-get-file-or-buffer file-or-buffer)))
+  "Create an alist of local variables from file-or-buffer.
+Use the current buffer if nil."
+  (declare (obsolete nil "ESS 19.04"))
+  (if file-or-buffer (set-buffer (if (bufferp file-or-buffer)
+                                     file-or-buffer
+                                   (find-buffer-visiting file-or-buffer))))
   (ess-sas--change-alist 'ess-kermit-remote-directory ess-kermit-remote-directory nil))
 
 (define-obsolete-function-alias
@@ -564,7 +560,7 @@ current buffer if nil."
            (concat "[cCub][oOty][rRpt][dDue][sSt][ ][wW][rR][iI][tT][tT][eE][nN][ ]+[tT][oO][ ]\n?[ ]*\\(.*"
                    ;;                         (concat "[ ][rR][eE][cC][oO][rR][dD][sS][ ][wW][rR][iI][tT][tT][eE][nN][ ]+[tT][oO][ ]\n?[ ]*\\(.*"
                    ess-sas-graph-view-suffix-regexp "\\)")))
-     ;           (concat "['\"]\\(.*" ess-sas-graph-suffix-regexp "\\)['\"]")))
+                                        ;           (concat "['\"]\\(.*" ess-sas-graph-suffix-regexp "\\)['\"]")))
 
       (save-match-data
         (search-backward-regexp "[ \t=]" nil t)
@@ -579,7 +575,7 @@ current buffer if nil."
                                          (or ess-tmp-graph ess-sas-file-path)))
 
         ;;GNU Emacs graphics file image viewing mode loaded?
-        (if (and (boundp 'auto-image-file-mode) auto-image-file-mode
+        (if (and (bound-and-true-p auto-image-file-mode)
                  (string-match "[.][jJ][pP][eE]?[gG]" ess-tmp-graph))
             (find-file ess-tmp-graph)
           ;;else XEmacs graphics file image viewing mode loaded?
@@ -815,14 +811,14 @@ optional argument is non-nil, then set-buffer rather than switch."
   "And now for something completely different."
   (interactive)
   ;;(ess-sas-file-path)
-  (setq ess-customize-alist SAS-customize-alist)
+  (setq ess-local-customize-alist SAS-customize-alist)
   ;; (let ((ess-temp-sas-file
   ;;        (nth 0 (split-string
   ;;                (car (last (split-string ess-sas-file-path "\\([a-zA-Z][a-zA-Z]:\\|]\\)"))) "[.]"))))
     (setq ess-sas-shell-buffer "*iESS[SAS]*")
     (ess-sas-goto-shell)
     (ess-add-ess-process)
-    (ess-setq-vars-local ess-customize-alist)
+    (ess-setq-vars-local ess-local-customize-alist)
     (inferior-ess-mode)
     (ess-eval-linewise (concat ess-sas-submit-command " " ess-sas-submit-command-options " -stdio"))
                                ;;" -altlog " ess-temp-sas-file ".log -altprint "
@@ -1195,7 +1191,7 @@ be placed on the menubar upon ESS initialization."
   (let ((versions
          ;; Find which versions of SAS we want.  Remove the pathname,
          ;; leaving just the name of the executable.
-         (ess-uniq-list
+         (delete-dups
           (mapcar #'file-name-nondirectory
                   (apply #'nconc
                          (mapcar #'ess-find-exec-completions

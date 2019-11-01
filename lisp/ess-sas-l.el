@@ -49,8 +49,7 @@
 
 ;;; Code:
 
-(require 'ess)
-(require 'ess-custom)
+(require 'ess-mode)
 (require 'ess-sas-a)
 
 (declare-function SAS-mode "ess-sas-d")
@@ -137,25 +136,20 @@ A .lst file is a SAS listing file when:
 (add-to-list 'magic-mode-alist
              '(ess-SAS-listing-mode-p . SAS-listing-mode))
 
-(defun SAS-log-mode ()
-"`ess-transcript-mode' for SAS."
-(interactive)
-(SAS-mode)
-(setq mode-name "ESS[LOG]")
-(ess-transcript-minor-mode 1)
-(setq buffer-read-only t) ;; to protect the buffer.
-(buffer-disable-undo))
+(define-derived-mode SAS-log-mode SAS-mode "ESS[LOG]"
+  "`ess-transcript-mode' for SAS."
+  :group 'ess-sas
+  (ess-transcript-minor-mode 1)
+  (setq buffer-read-only t) ;; to protect the buffer.
+  (buffer-disable-undo))
 
 (defvar sas-mode-local-map nil "contains modified local keymap for SAS")
-(defun SAS-listing-mode()
-"Fundamental mode with `ess-listing-minor-mode' and read-only."
-(interactive)
-(fundamental-mode)
-(setq mode-name "ESS[LST]")
-(ess-listing-minor-mode 1)
-(use-local-map sas-mode-local-map)
-(setq buffer-read-only t) ;; to protect the buffer.
-(buffer-disable-undo))
+(define-derived-mode SAS-listing-mode special-mode "ESS[LST]"
+  "Fundamental mode with `ess-listing-minor-mode' and read-only."
+  :keymap sas-mode-local-map
+  :group 'ess-sas
+  (ess-listing-minor-mode 1)
+  (buffer-disable-undo))
 
 (fset 'sas-log-mode        'SAS-log-mode)
 (fset 'SAS-transcript-mode 'SAS-log-mode)
@@ -164,17 +158,17 @@ A .lst file is a SAS listing file when:
 (fset 'sas-listing-mode    'SAS-listing-mode)
 
 (defcustom  sas-indent-width 4
-  "*Amount to indent sas statements."
+  "Amount to indent sas statements."
   :group 'ess-sas
   :type  'integer)
 
-(defcustom sas-indent-ignore-comment "*"
-  "*Comments that start with this string are ignored in indentation."
+(defcustom sas-indent-ignore-comment "\\*"
+  "Comments that start with this regular expression are ignored in indentation."
   :group 'ess-sas
   :type  'string)
 
 (defcustom sas-require-confirmation t
-  "*Require confirmation when revisiting a modified sas-output file."
+  "Require confirmation when revisiting a modified sas-output file."
   :group 'ess-sas
   :type  'boolean)
 
@@ -183,19 +177,13 @@ A .lst file is a SAS listing file when:
   :group 'ess-sas
   :type  'hook)
 
-                                        ;never used--see ess-sas-submit-command-options in ess-sas-a.el
-                                        ;(defcustom sas-options-string ""
-                                        ;  "*Options to be passed to sas as if typed on the command line."
-                                        ;  :group 'ess-sas
-                                        ;  :type  'string)
-
 (defcustom sas-notify t
-  "*Beep and display message when job is done."
+  "Beep and display message when job is done."
   :group 'ess-sas
   :type  'boolean)
 
 (defcustom sas-error-notify t
-  "*If `sas-notify' t, indicate errors in log file upon completion."
+  "If `sas-notify' t, indicate errors in log file upon completion."
   :group 'ess-sas
   :type  'boolean)
 
@@ -211,23 +199,23 @@ A .lst file is a SAS listing file when:
   :group 'ess-sas)
 
 (defcustom sas-page-number-max-line 3
-  "*Number of lines from the page break, to search for the page
+  "Number of lines from the page break, to search for the page
 number."
   :group 'ess-sas
   :type  'integer)
 
 (defcustom sas-notify-popup nil
-  "*If this and sas-notify are t), popup a window when SAS job ends."
+  "If this and `sas-notify' are t), popup a window when SAS job ends."
   :group 'ess-sas
   :type  'boolean)
 
 (defcustom sas-tmp-libname "_tmp_"
-  "*Libname to use for sas-get-dataset."
+  "Libname to use for sas-get-dataset."
   :group 'ess-sas
   :type  'string)
 
 (defcustom sas-file-name nil
-  "*The name of the current sas file."
+  "The name of the current sas file."
   :group 'ess-sas
   :type '(choice (const nil) file))
 
@@ -252,39 +240,6 @@ number."
 (defvar sas-file-root nil)
 (defvar sas-submitable nil)
 (defvar sas-dataset nil)
-(defvar SAS-syntax-table nil "Syntax table for SAS code.")
-
-(if SAS-syntax-table nil
-  (setq SAS-syntax-table (make-syntax-table))
-
-  ;; (if (equal system-type 'windows-nt)
-  ;;     ;; backslash is punctuation (used in MS file names)
-  ;;     (modify-syntax-entry ?\\ "."  SAS-syntax-table)
-  ;;    ;; backslash is an escape character
-  ;;    (modify-syntax-entry ?\\ "\\" SAS-syntax-table))
-  (modify-syntax-entry ?\\ "."  SAS-syntax-table)  ;; backslash is punctuation
-  (modify-syntax-entry ?+  "."  SAS-syntax-table)
-  (modify-syntax-entry ?-  "."  SAS-syntax-table)
-  (modify-syntax-entry ?=  "."  SAS-syntax-table)
-  (modify-syntax-entry ?%  "w"  SAS-syntax-table)
-  (modify-syntax-entry ?<  "."  SAS-syntax-table)
-  (modify-syntax-entry ?>  "."  SAS-syntax-table)
-  (modify-syntax-entry ?&  "w"  SAS-syntax-table)
-  (modify-syntax-entry ?|  "."  SAS-syntax-table)
-  (modify-syntax-entry ?\' "\"" SAS-syntax-table)
-  (modify-syntax-entry ?*  ". 23"  SAS-syntax-table) ; comment character
-  (modify-syntax-entry ?\; "."  SAS-syntax-table)
-  (modify-syntax-entry ?_  "w"  SAS-syntax-table)
-  (modify-syntax-entry ?<  "."  SAS-syntax-table)
-  (modify-syntax-entry ?>  "."  SAS-syntax-table)
-  (modify-syntax-entry ?/  ". 14"  SAS-syntax-table) ; comment character
-  (modify-syntax-entry ?.  "w"  SAS-syntax-table))
-
-(require 'font-lock); fontification also works in terminals!
-;; (if (or window-system
-;;      noninteractive) ; compilation!
-;;; ...
-
 
 (defvar SAS-mode-font-lock-defaults
   (if ess-sas-run-regexp-opt
@@ -827,34 +782,6 @@ number."
      ))
   "Font Lock regexs for SAS.")
 
-
-(defvar SAS-editing-alist
-  '((sentence-end                 . ";[\t\n */]*")
-    (paragraph-start              . "^[ \t]*$")
-    (paragraph-separate           . "^[ \t]*$")
-    (paragraph-ignore-fill-prefix . t)
-    ;;(fill-paragraph-function      . 'lisp-fill-paragraph)
-    (adaptive-fill-mode           . nil)
-    (indent-line-function         . 'sas-indent-line)
-    ;;(indent-region-function       . 'sas-indent-region)
-    (require-final-newline        . mode-require-final-newline)
-    (comment-start                . "/*")
-    (comment-start-skip           . "/[*]")
-    (comment-end                  . "*/")
-    (comment-end-skip             . "[*]/")
-    (comment-column               . 40)
-    ;;(comment-indent-function      . 'lisp-comment-indent)
-    (parse-sexp-ignore-comments   . t)
-    (ess-style                . ess-default-style)
-    (ess-local-process-name       . nil)
-    ;;(ess-keep-dump-files          . 'ask)
-    (tab-stop-list                . ess-sas-tab-stop-list)
-    (ess-mode-syntax-table        . SAS-syntax-table)
-    (font-lock-keywords-case-fold-search . t)
-    (font-lock-defaults           . '(SAS-mode-font-lock-defaults)))
-  "General options for editing SAS source files.")
-
-
 (defun beginning-of-sas-statement (arg &optional comment-start)
   "Move point to beginning of current sas statement."
   (interactive "P")
@@ -900,7 +827,7 @@ number."
             ;; added 6/27/94  to leave "* ;" comments alone.
             ((progn
                (back-to-indentation)
-               (and (not (looking-at "*/"))
+               (and (not (looking-at "\\*/"))
                     (looking-at (concat sas-indent-ignore-comment "\\|/\\*"))))
              (setq indent (current-indentation)))
             ;;  Case where current statement not DATA, PROC etc...
@@ -933,7 +860,7 @@ number."
                 ((save-excursion
                    (progn
                      (beginning-of-sas-statement 1 t)
-                     (and (not (looking-at "*/"))
+                     (and (not (looking-at "\\*/"))
                           (looking-at sas-indent-ignore-comment))))
                  (setq indent cur-ind))
                 ((progn
@@ -1006,7 +933,7 @@ This will (hopefully) be fixed in later versions."
       (let ((prev-end (point)))
         (beginning-of-sas-statement 1)
         (while (and (not (bobp))
-                    (not (looking-at "*/"))
+                    (not (looking-at "\\*/"))
                     (looking-at sas-indent-ignore-comment))
           (skip-chars-backward sas-white-chars)
           (if (bobp) nil
@@ -1543,7 +1470,7 @@ be submitted instead.  `sas-submitable' is automatically sets to t."
   "Add local variables code to end of sas source file."
   (interactive)
   (save-excursion
-    (if (re-search-forward "* *Local Variables: *;" nil t)
+    (if (re-search-forward "\\* *Local Variables: *;" nil t)
         ()
       (goto-char (point-max))
       (insert "
@@ -1585,13 +1512,10 @@ page ;
 
 ;;  variables section
 (defvar sas-dir-mode-map nil)
-(defvar sas-directory-name nil
+(defvar-local sas-directory-name nil
   "Name of directory associated with this buffer.")
-(make-variable-buffer-local 'sas-directory-name)
-(defvar sas-dir-buf-end nil)
-(make-variable-buffer-local 'sas-dir-buf-end)
-(defvar sas-sorted-by-num nil)
-(make-variable-buffer-local 'sas-sorted-by-num)
+(defvar-local sas-dir-buf-end nil)
+(defvar-local sas-sorted-by-num nil)
 ;; user variables
 
 ;; keymaps etc...
@@ -1626,17 +1550,10 @@ page ;
     '("Submit File " . submit-sas))
   )
 
-                                        ;(require 'sas)
-
-(defun sas-dir-mode ()
+(define-derived-mode sas-dir-mode special-mode "SAS"
   "Major mode for managing sas files."
-  (interactive)
-  (kill-all-local-variables)
-  (use-local-map sas-dir-mode-map)
-  (setq major-mode 'sas-dir-mode)
-  (setq mode-name "SAS")
-  (setq sas-directory-name (expand-file-name default-directory))
-  (setq buffer-read-only 1))
+  :group 'ess-sas
+  (setq sas-directory-name (expand-file-name default-directory)))
 
 
 ;;(defun sas-make-library (directory &optional update)

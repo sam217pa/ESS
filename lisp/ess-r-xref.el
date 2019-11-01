@@ -5,7 +5,6 @@
 ;; Maintainer: ESS-core <ESS-core@r-project.org>
 ;;
 ;; Keywords: languages, statistics, xref
-;; Package-Requires: ((emacs "25"))
 ;;
 ;; This file is part of ESS.
 ;;
@@ -24,19 +23,12 @@
 
 ;;; Commentary:
 
-;; This file contains an xref backend for `R-mode'.
+;; This file contains an xref backend for `ess-r-mode'.
 
 ;;; Code:
 
-(when (>= emacs-major-version 25)
-  (require 'subr-x)
-  (require 'xref))
-;; Cludge to silence the byte compiler until we drop support for Emacs 24.
-(declare-function xref-make "xref")
-(declare-function xref-make-buffer-location "xref")
-(declare-function xref-make-file-location "xref")
+(require 'xref)
 (require 'ess-inf)
-(require 'ess-utils)
 (require 'ess-r-package)
 (require 'ess-tracebug)
 
@@ -51,7 +43,7 @@ associations, but could be used by the users for a more refined
 control of package locations than `ess-r-package-library-paths'.")
 
 (defun ess-r-xref-backend ()
-  "An `xref-backend-functions' implementation for `R-mode'.
+  "An `xref-backend-functions' implementation for `ess-r-mode'.
 R's xref backend searches for `ess-r-package-library-paths' when
 srcrefs point to temporary locations."
   'ess-r)
@@ -91,7 +83,7 @@ srcrefs point to temporary locations."
   "Look in the source directory of the R package containing symbol SYMBOL for R-SRC-FILE."
   (let* ((env-name (ess-string-command (format ".ess_fn_pkg(\"%s\")\n" symbol)))
          (pkg (if (string-equal env-name "")
-                  (error "Can't find package for symbol %s" symbol)
+                  (user-error "Can't find package for symbol %s" symbol)
                 env-name))
          (dir (or (assoc-default pkg ess-r-xref-pkg-sources)
                   (cond ((stringp ess-r-package-library-paths)
@@ -100,11 +92,11 @@ srcrefs point to temporary locations."
                          (cl-loop for d in ess-r-package-library-paths
                                   for p = (expand-file-name pkg d)
                                   when (file-exists-p p) return p))
-                        (t (error "Invalid value of `ess-r-package-library-paths'")))))
+                        (t (user-error "Invalid value of `ess-r-package-library-paths'")))))
          (file (when dir (expand-file-name r-src-file dir))))
     (when file
       (unless (file-readable-p file)
-        (error "Can't read %s" file))
+        (user-error "Can't read %s" file))
       ;; Cache package's source directory.
       (unless (assoc pkg ess-r-xref-pkg-sources)
         (push `(,pkg . ,dir) ess-r-xref-pkg-sources))

@@ -1,4 +1,4 @@
-;;; ess-jags-d.el --- ESS[JAGS] dialect
+;;; ess-jags-d.el --- ESS[JAGS] dialect  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2008-2011 Rodney Sparapani
 
@@ -23,13 +23,10 @@
 
 ;;; Code:
 
-(require 'ess-bugs-l)
+(require 'ess-bugs-d)
 (require 'ess-utils)
 (require 'ess-inf)
-(require 'ess)
-
-(setq auto-mode-alist
-      (append '(("\\.[jJ][aA][gG]\\'" . ess-jags-mode)) auto-mode-alist))
+(require 'ess-mode)
 
 (defvar ess-jags-command "jags" "Default JAGS program in PATH.")
 (make-local-variable 'ess-jags-command)
@@ -177,7 +174,7 @@
                                 ))
   )
 
-(defun ess-jags-na-jmd (jags-command jags-chains)
+(defun ess-jags-na-jmd (jags-command)
   "ESS[JAGS]: Perform the Next-Action for .jmd."
                                         ;(ess-save-and-set-local-variables)
   (if (equal 0 (buffer-size)) (ess-jags-switch-to-suffix ".jmd")
@@ -239,19 +236,11 @@
   )
 
 ;;;###autoload
-(defun ess-jags-mode ()
-  "ESS[JAGS]: Major mode for JAGS."
-  (interactive)
-  (kill-all-local-variables)
-  (ess-setq-vars-local '((comment-start . "#")))
-  (setq major-mode 'ess-jags-mode)
-  (setq mode-name "ESS[JAGS]")
-  (use-local-map ess-bugs-mode-map)
-  (make-local-variable 'font-lock-defaults)
+(define-derived-mode ess-jags-mode ess-bugs-mode "ESS[JAGS]"
+  "Major mode for JAGS."
+  (setq-local comment-start "#")
   (setq font-lock-defaults '(ess-jags-font-lock-keywords nil t))
   (setq ess-language "S") ; mimic S for ess-smart-underscore
-  (run-mode-hooks 'ess-bugs-mode-hook)
-
   (unless (and (fboundp 'w32-shell-dos-semantics)
                (w32-shell-dos-semantics))
     (add-hook 'comint-output-filter-functions 'ess-bugs-exit-notify-sh))
@@ -260,10 +249,6 @@
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.[Jj][Aa][Gg]\\'" . ess-jags-mode))
 
-(defvaralias 'ess-jags-mode-hook 'ess-bugs-mode-hook)
-(defvaralias 'ess-jags-mode-map 'ess-bugs-mode-map)
-
-(setq features (delete 'ess-bugs-d features))
 (provide 'ess-jags-d)
 
 ;;; ess-jags-d.el ends here

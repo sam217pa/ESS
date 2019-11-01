@@ -24,7 +24,7 @@
 ;;; Commentary:
 ;;
 ;; Flymake is the built-in Emacs package that supports on-the-fly
-;; syntax checking.  This file adds support for this in R-mode by
+;; syntax checking.  This file adds support for this in ess-r-mode by
 ;; relying on the lintr package, available on CRAN and currently
 ;; hosted at https://github.com/jimhester/lintr.
 ;;
@@ -33,11 +33,14 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
-(require 'ess-custom)
 (require 'ess-inf)
 (require 'flymake)
-;; TODO: When remove support for Emacs 24, remove the nil t:
-(require 'project nil t)
+
+;; Appease the byte compiler for Emacs 25. Remove after dropping
+;; support for Emacs 25.
+(declare-function flymake-diag-region "flymake")
+(declare-function flymake-make-diagnostic "flymake")
+(declare-function flymake--overlays "flymake")
 
 (defcustom ess-r-flymake-linters
   '("closed_curly_linter = NULL"
@@ -81,8 +84,8 @@ each element is passed as argument to 'lintr::with_defaults'."
     if (!suppressWarnings(require(lintr, quietly=T))) {
         cat('@@error: @@`lintr` package not installed')
     } else {
-        if (packageVersion('lintr') <= '1.0.2') {
-            cat('@@error: @@Need `lintr` version > v1.0.2')
+        if (packageVersion('lintr') <= '1.0.3') {
+            cat('@@error: @@Need `lintr` version > v1.0.3')
         } else {
             tryCatch(lintr::lint(commandArgs(TRUE), ...),
                     error = function(e) {
@@ -96,19 +99,27 @@ each element is passed as argument to 'lintr::with_defaults'."
   "Return the absolute path to the .lintr file.
 Check first the current directory, then the project root, then
 the user's home directory.  Return nil if we couldn't find a .lintr file."
-  (cond (;; current directory
-         (file-readable-p (expand-file-name ".lintr" default-directory))
-         (expand-file-name ".lintr" default-directory))
-        ;; Project root
-        ((and (fboundp 'ess-r-package-project)
-              (ess-r-package-project)) (expand-file-name ".lintr" (cdr (ess-r-package-project))))
-        ((and (fboundp 'project-roots)  ; checking that project-roots is defined can be removed when drop Emacs 24
-              (project-current)
-              (project-roots (project-current)))
-         (expand-file-name ".lintr" (car (project-roots (project-current)))))
-        ;; Home directory
-        ((file-readable-p (expand-file-name ".lintr" (getenv "HOME")))
-         (expand-file-name ".lintr" (getenv "HOME")))))
+  (let ((cur-dir-file (expand-file-name ".lintr" default-directory))
+        (ess-proj-file (and (fboundp 'ess-r-package-project)
+                            (ess-r-package-project)
+                            (expand-file-name ".lintr" (cdr (ess-r-package-project)))))
+        (proj-file (and (project-current)
+                        (project-roots (project-current))
+                        (expand-file-name ".lintr" (car (project-roots (project-current))))))
+        (home-file (expand-file-name ".lintr" (getenv "HOME"))))
+    (cond (;; current directory
+           (file-readable-p cur-dir-file)
+           cur-dir-file)
+          ;; Project root according to `ess-r-package-project'
+          ((and ess-proj-file
+                (file-readable-p ess-proj-file))
+           ess-proj-file)
+          ;; Project root according to `project-roots'
+          ((and proj-file
+                (file-readable-p proj-file)))
+          ;; Home directory
+          ((file-readable-p home-file)
+           home-file))))
 
 (defun ess-r--flymake-linters ()
   "If `ess-r-flymake-linters' is a string, use that.
@@ -234,9 +245,9 @@ Activate flymake only if `ess-use-flymake' is non-nil."
 ;; Enable flymake in Emacs 26+
 (when (<= 26 emacs-major-version)
   (if (eval-when-compile (<= 26 emacs-major-version))
-      (add-hook 'ess-mode-hook #'ess-r-setup-flymake)
+      (add-hook 'ess-r-mode-hook #'ess-r-setup-flymake)
     (when ess-use-flymake
-      (display-warning 'ess "ESS was compiled with older version of emacs;\n    `ess-r-flymake' won't be available"))))
+      (display-warning 'ess "ESS was compiled with older version of Emacs;\n    `ess-r-flymake' won't be available"))))
 
 (provide 'ess-r-flymake)
 

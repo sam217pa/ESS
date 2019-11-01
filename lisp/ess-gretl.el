@@ -1,4 +1,4 @@
-;; ess-gretl.el --- ESS gretl mode and inferior interaction
+;; ess-gretl.el --- ESS gretl mode and inferior interaction  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2012 Allin Cottrell
 ;; Copyright (C) 2012 Ahmadou DICKO
@@ -14,7 +14,6 @@
 ;;
 
 ;; This file is *NOT* part of GNU Emacs.
-;; This file is *NOT YET* part of ESS
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -39,10 +38,8 @@
 (require 'compile); for compilation-* below
 (require 'ess-r-mode)
 
-
 ;;; Code:
-(defvar gretl-mode-hook nil)
-(add-to-list 'auto-mode-alist '("\\.inp$" . gretl-mode))
+(add-to-list 'auto-mode-alist '("\\.inp$" . ess-gretl-mode))
 
 
 (defvar gretl-syntax-table
@@ -78,16 +75,16 @@
     (modify-syntax-entry ?\# "<"  table)
     (modify-syntax-entry ?\n ">"  table)
     table)
-  "Syntax table for `gretl-mode'.")
+  "Syntax table for `ess-gretl-mode'.")
 
 ;; syntax table that holds within strings
-(defvar gretl-mode-string-syntax-table
+(defvar ess-gretl-mode-string-syntax-table
   (let ((table (make-syntax-table)))
     table)
-  "Syntax table for `gretl-mode' that holds within strings.")
+  "Syntax table for `ess-gretl-mode' that holds within strings.")
 
 (defcustom gretl-continuation-offset 4
-  "*Extra indentation applied to Gretl continuation lines."
+  "Extra indentation applied to Gretl continuation lines."
   :type 'integer
   :group 'ess-gretl)
 
@@ -95,7 +92,7 @@
   "[^#%\n]*\\(\\\\\\|\\.\\.\\.\\)\\s-*\\(\\s<.*\\)?$")
 
 (defcustom gretl-continuation-string "\\"
-  "*Character string used for Gretl continuation lines.  Normally \\."
+  "Character string used for Gretl continuation lines.  Normally \\."
   :type 'string
   :group 'ess-gretl)
 
@@ -114,25 +111,25 @@ parenthetical grouping.")
 ;;   "Regexp for function names")
 
 (defvar gretl-command-words
- '("add" "adf" "anova" "append" "ar" "ar1" "arbond" "arch"
-   "arima" "biprobit" "break" "boxplot" "chow" "clear" "coeffsum" "coint"
-   "coint2" "corr" "corrgm" "cusum" "data" "dataset" "delete" "diff"
-   "difftest" "discrete" "dpanel" "dummify" "duration" "elif" "else" "end"
-   "endif" "endloop" "eqnprint" "equation" "estimate" "fcast" "foreign" "fractint"
-   "freq" "function" "funcerr" "garch" "genr" "gmm" "gnuplot" "graphpg"
-   "hausman" "heckit" "help" "hsk" "hurst" "if" "include" "info"
-   "intreg" "kalman" "kpss" "labels" "lad" "lags" "ldiff" "leverage"
-   "levinlin" "logistic" "logit" "logs" "loop" "mahal" "makepkg" "meantest"
-   "mle" "modeltab" "modprint" "modtest" "mpols" "negbin" "nls" "normtest"
-   "nulldata" "ols" "omit" "open" "orthdev" "outfile" "panel" "pca"
-   "pergm" "textplot" "poisson" "print" "printf" "probit" "pvalue" "quantreg"
-   "qlrtest" "qqplot" "quit" "rename" "reset" "restrict" "rmplot" "run"
-   "runs" "scatters" "sdiff" "set" "setinfo" "setobs" "setmiss" "shell"
-   "smpl" "spearman" "sprintf" "square" "sscanf" "store" "summary" "system"
-   "tabprint" "tobit" "tsls" "var" "varlist" "vartest" "vecm" "vif"
-   "wls" "xcorrgm" "xtab" "debug" "return" "catch" "for" "foreach"
-   "funcerr" "return" "while" "elif" "const" "3sls" "liml" "fiml"
-   "sur" "params" "deriv" "orthog" "weights" "series" "scalar" "genr")
+  '("add" "adf" "anova" "append" "ar" "ar1" "arbond" "arch"
+    "arima" "biprobit" "break" "boxplot" "chow" "clear" "coeffsum" "coint"
+    "coint2" "corr" "corrgm" "cusum" "data" "dataset" "delete" "diff"
+    "difftest" "discrete" "dpanel" "dummify" "duration" "elif" "else" "end"
+    "endif" "endloop" "eqnprint" "equation" "estimate" "fcast" "foreign" "fractint"
+    "freq" "function" "funcerr" "garch" "genr" "gmm" "gnuplot" "graphpg"
+    "hausman" "heckit" "help" "hsk" "hurst" "if" "include" "info"
+    "intreg" "kalman" "kpss" "labels" "lad" "lags" "ldiff" "leverage"
+    "levinlin" "logistic" "logit" "logs" "loop" "mahal" "makepkg" "meantest"
+    "mle" "modeltab" "modprint" "modtest" "mpols" "negbin" "nls" "normtest"
+    "nulldata" "ols" "omit" "open" "orthdev" "outfile" "panel" "pca"
+    "pergm" "textplot" "poisson" "print" "printf" "probit" "pvalue" "quantreg"
+    "qlrtest" "qqplot" "quit" "rename" "reset" "restrict" "rmplot" "run"
+    "runs" "scatters" "sdiff" "set" "setinfo" "setobs" "setmiss" "shell"
+    "smpl" "spearman" "sprintf" "square" "sscanf" "store" "summary" "system"
+    "tabprint" "tobit" "tsls" "var" "varlist" "vartest" "vecm" "vif"
+    "wls" "xcorrgm" "xtab" "debug" "return" "catch" "for" "foreach"
+    "while" "const" "3sls" "liml" "fiml"
+    "sur" "params" "deriv" "orthog" "weights" "series" "scalar")
   "Commands in Gretl (these names are also reserved).")
 
 (defvar gretl-genr-functions
@@ -167,58 +164,58 @@ parenthetical grouping.")
 
 
 (defvar gretl-option-flags
- '("addstats" "all" "anova" "append"
-   "arch" "arma-init" "asymptotic" "autocorr" "auto"
-   "autocorr" "auxiliary" "balanced" "bartlett"
-   "between" "bootstrap" "both" "breusch-pagan"
-   "byobs" "by" "c" "close"
-   "coded" "cols" "column" "comfac"
-   "complete" "conditional" "contiguous" "continue"
-   "continuous" "control" "covariance" "cross"
-   "cross-section" "crt" "csv" "ct"
-   "ctt" "cubes-only" "dat" "database"
-   "dataset" "db" "degrees" "dhansen"
-   "difference" "diffuse" "discrete" "dpdstyle"
-   "drop-empty" "drop-first" "drop-last" "dummy"
-   "dynamic" "equal" "exit" "exponential"
-   "fcp" "fixed-effects" "from-file" "full"
-   "func" "gamma" "geomean" "gls"
-   "gmm" "gnu-R" "gnu-octave" "gph"
-   "gzipped" "hausman-reg" "hessian" "hilu"
-   "impulse-responses" "input" "inst" "integrate"
-   "intervals" "inverse-fit" "iterate" "jackknife"
-   "jbera" "jitter" "jmulti" "kendall"
-   "lags" "lagselect" "lbfgs" "lillie"
-   "liml" "linear-fit" "list" "loess-fit"
-   "log" "loglogistic" "lognormal" "logs"
-   "matrix" "matrix-diff" "medians" "ml"
-   "model1" "multi" "multinomial" "nc"
-   "next" "no-corc" "no-dates" "no-df-corr"
-   "no-gradient-check" "no-header" "no-missing" "no-scaling"
-   "no-stats" "normal" "normality" "notches"
-   "numerical" "odbc" "omit-obs" "one-scale"
-   "opg" "orthdev" "other" "out-of-sample"
-   "output" "overwrite" "p-values" "panel"
-   "panel-vars" "plot" "pooled" "preserve"
-   "print-final" "progress-bar" "progressive" "pwe"
-   "quadratic-fit" "quiet" "quit" "radians"
-   "random" "random-effects" "rank-sum" "raw"
-   "rc" "replace" "restrict" "restructure"
-   "reverse" "robust" "rolling" "row"
-   "rtf" "save" "save-all" "save-ehat"
-   "save-xbeta" "scalars" "seasonals" "send-data"
-   "sign" "signed-rank" "silent" "simple"
-   "simple-print" "single-yaxis" "skip-df" "spearman"
-   "special-time-series" "squares" "squares-only" "stacked-cross-section"
-   "stacked-time-series" "static" "stdresid" "suppress-fitted"
-   "swilk" "system" "t-ratios" "tall"
-   "test-down" "tex" "time-dummies" "time-series"
-   "to-file" "to_file" "traditional" "trend"
-   "two-step" "unequal-vars" "uniform" "unit-weights"
-   "variance-decomp" "vcv" "verbose" "wald"
-   "weibull" "weights" "white" "white-nocross"
-   "with-impulses" "with-lines" "write" "www"
-   "x-12-arima" "y-diff-only" "z-scores" "zeros")
+  '("addstats" "all" "anova" "append"
+    "arch" "arma-init" "asymptotic" "auto"
+    "autocorr" "auxiliary" "balanced" "bartlett"
+    "between" "bootstrap" "both" "breusch-pagan"
+    "byobs" "by" "c" "close"
+    "coded" "cols" "column" "comfac"
+    "complete" "conditional" "contiguous" "continue"
+    "continuous" "control" "covariance" "cross"
+    "cross-section" "crt" "csv" "ct"
+    "ctt" "cubes-only" "dat" "database"
+    "dataset" "db" "degrees" "dhansen"
+    "difference" "diffuse" "discrete" "dpdstyle"
+    "drop-empty" "drop-first" "drop-last" "dummy"
+    "dynamic" "equal" "exit" "exponential"
+    "fcp" "fixed-effects" "from-file" "full"
+    "func" "gamma" "geomean" "gls"
+    "gmm" "gnu-R" "gnu-octave" "gph"
+    "gzipped" "hausman-reg" "hessian" "hilu"
+    "impulse-responses" "input" "inst" "integrate"
+    "intervals" "inverse-fit" "iterate" "jackknife"
+    "jbera" "jitter" "jmulti" "kendall"
+    "lags" "lagselect" "lbfgs" "lillie"
+    "liml" "linear-fit" "list" "loess-fit"
+    "log" "loglogistic" "lognormal" "logs"
+    "matrix" "matrix-diff" "medians" "ml"
+    "model1" "multi" "multinomial" "nc"
+    "next" "no-corc" "no-dates" "no-df-corr"
+    "no-gradient-check" "no-header" "no-missing" "no-scaling"
+    "no-stats" "normal" "normality" "notches"
+    "numerical" "odbc" "omit-obs" "one-scale"
+    "opg" "orthdev" "other" "out-of-sample"
+    "output" "overwrite" "p-values" "panel"
+    "panel-vars" "plot" "pooled" "preserve"
+    "print-final" "progress-bar" "progressive" "pwe"
+    "quadratic-fit" "quiet" "quit" "radians"
+    "random" "random-effects" "rank-sum" "raw"
+    "rc" "replace" "restrict" "restructure"
+    "reverse" "robust" "rolling" "row"
+    "rtf" "save" "save-all" "save-ehat"
+    "save-xbeta" "scalars" "seasonals" "send-data"
+    "sign" "signed-rank" "silent" "simple"
+    "simple-print" "single-yaxis" "skip-df" "spearman"
+    "special-time-series" "squares" "squares-only" "stacked-cross-section"
+    "stacked-time-series" "static" "stdresid" "suppress-fitted"
+    "swilk" "system" "t-ratios" "tall"
+    "test-down" "tex" "time-dummies" "time-series"
+    "to-file" "to_file" "traditional" "trend"
+    "two-step" "unequal-vars" "uniform" "unit-weights"
+    "variance-decomp" "vcv" "verbose" "wald"
+    "weibull" "weights" "white" "white-nocross"
+    "with-impulses" "with-lines" "write" "www"
+    "x-12-arima" "y-diff-only" "z-scores" "zeros")
   "Gretl option flags.")
 
 (defvar gretl-internal-vars
@@ -384,60 +381,34 @@ end keywords as associated values.")
 
 
 (defun gretl-indent-line ()
-  "Indent current line of gretl code"
+  "Indent current line of gretl code."
   (interactive)
-					;  (save-excursion
-    (end-of-line)
-    (indent-line-to
-     (or (and (ess-inside-string-p (point-at-bol)) 0)
-	 (save-excursion (ignore-errors (gretl-form-indent)))
-         (save-excursion
-           (let ((endtok (progn
-                           (beginning-of-line)
-                           (forward-to-indentation 0)
-                           (gretl-at-keyword gretl-block-end-keywords))))
-             (ignore-errors (+ (gretl-last-open-block (point-min))
-                               (if endtok (- gretl-basic-offset) 0)))))
-	 ;; previous line ends in =
-	 (save-excursion
-	   (if (and (not (equal (point-min) (line-beginning-position)))
-		    (progn
-		      (forward-line -1)
-		      (end-of-line) (backward-char 1)
-		      (equal (char-after (point)) ?=)))
-	       (+ gretl-basic-offset (current-indentation))
-	     nil))
-	 ;; take same indentation as previous line
-	 (save-excursion (forward-line -1)
-			 (current-indentation))
-         0))
-    (when (gretl-at-keyword gretl-block-end-keywords)
-      (forward-word 1)))
-
-
-(defvar gretl-editing-alist
-  '((paragraph-start		  . (concat "\\s-*$\\|" page-delimiter))
-    (paragraph-separate		  . (concat "\\s-*$\\|" page-delimiter))
-    (paragraph-ignore-fill-prefix . t)
-    (require-final-newline	  . mode-require-final-newline)
-    (comment-start		  . "# ")
-    (comment-add                  . 1)
-    (comment-start-skip		  . "\\s<+\\s-*")
-    (comment-column		  . 40)
-    ;;(comment-indent-function	  . 'S-comment-indent)
-    ;;(ess-comment-indent	  . 'S-comment-indent)
-    ;;(ess-indent-line		  . 'S-indent-line)
-    (ess-calculate-indent	  . 'ess-calculate-indent)
-    (ess-indent-line-function	  . 'gretl-indent-line)
-    (parse-sexp-ignore-comments	  . t)
-    (ess-style		  	  . ess-default-style) ;; ignored
-    (ess-local-process-name	  . nil)
-    ;;(ess-keep-dump-files	    . 'ask)
-    (ess-mode-syntax-table	  . gretl-syntax-table)
-    ;;  (add-log-current-defun-header-regexp . "^.*function[ \t]*\\([^ \t(]*\\)[ \t]*(")
-    )
-  "General options for gretl source files.")
-
+  (end-of-line)
+  (indent-line-to
+   (or (and (ess-inside-string-p (point-at-bol)) 0)
+       (save-excursion (ignore-errors (gretl-form-indent)))
+       (save-excursion
+         (let ((endtok (progn
+                         (beginning-of-line)
+                         (forward-to-indentation 0)
+                         (gretl-at-keyword gretl-block-end-keywords))))
+           (ignore-errors (+ (gretl-last-open-block (point-min))
+                             (if endtok (- gretl-basic-offset) 0)))))
+       ;; previous line ends in =
+       (save-excursion
+	     (if (and (not (equal (point-min) (line-beginning-position)))
+		          (progn
+		            (forward-line -1)
+		            (end-of-line) (backward-char 1)
+		            (equal (char-after (point)) ?=)))
+	         (+ gretl-basic-offset (current-indentation))
+	       nil))
+       ;; take same indentation as previous line
+       (save-excursion (forward-line -1)
+		               (current-indentation))
+       0))
+  (when (gretl-at-keyword gretl-block-end-keywords)
+    (forward-word 1)))
 
 ;; (defun gretl-send-string-function (process string visibly)
 ;;   (let ((gretl-process (get-process "gretlcli")))
@@ -450,8 +421,8 @@ end keywords as associated values.")
 ;;       (insert string))
 ;;     (process-send-string process (format ess-load-command file))))
 
-(defun gretl--get-words-from-command (command start-reg end-reg)
-  (with-current-buffer (ess-command command)
+(defun gretl--get-words-from-command (command start-reg end-reg proc)
+  (with-current-buffer (ess-command command nil nil nil nil proc)
     (goto-char (point-min))
     (let ((beg (or (re-search-forward start-reg nil t)
                    (point-min)))
@@ -465,14 +436,14 @@ end keywords as associated values.")
         (push (match-string-no-properties 0) acum))
       acum)))
 
-(defun gretl-get-help-topics-function (name)
+(cl-defmethod ess-help-get-topics (proc &context (ess-dialect "gretl"))
   (delete-dups
    (append gretl-command-words gretl-genr-functions
            gretl-block-end-keywords gretl-block-other-keywords
            gretl-block-start-keywords
-           (gretl--get-words-from-command "help\n" "are:" "^For")
-           (gretl--get-words-from-command "help functions\n" "Accessors:" "^Functions")
-           (gretl--get-words-from-command "help functions\n" "^Functions" "^For")
+           (gretl--get-words-from-command "help\n" "are:" "^For" proc)
+           (gretl--get-words-from-command "help functions\n" "Accessors:" "^Functions" proc)
+           (gretl--get-words-from-command "help functions\n" "^Functions" "^For" proc)
            )))
 
 ;; (defvar ess-gretl-error-regexp-alist '(gretl-in gretl-at)
@@ -491,8 +462,6 @@ end keywords as associated values.")
     (inferior-ess-prompt		. "\\? ")
     (ess-local-customize-alist		. 'gretl-customize-alist)
     (inferior-ess-program		. "gretlcli")
-    (ess-get-help-topics-function	. 'gretl-get-help-topics-function)
-    (font-lock-defaults		  . '(gretl-font-lock-keywords))
     (ess-load-command   		. "open \"%s\"\n")
     ;; (ess-dump-error-re			. "in \\w* at \\(.*\\):[0-9]+")
     ;; (ess-error-regexp			. "\\(^\\s-*at\\s-*\\(?3:.*\\):\\(?2:[0-9]+\\)\\)")
@@ -505,10 +474,8 @@ end keywords as associated values.")
     (ess-dialect			. "gretl")
     (ess-suffix				. "inp")
     (ess-dump-filename-template		. (replace-regexp-in-string
-					                   "S$" ess-suffix ; in the one from custom:
-					                   ess-dump-filename-template-proto))
-    (ess-mode-syntax-table		. gretl-syntax-table)
-    (ess-mode-editing-alist	        . gretl-editing-alist)
+					   "S$" ess-suffix ; in the one from custom:
+					   ess-dump-filename-template-proto))
     (ess-change-sp-regexp		. nil );ess-r-change-sp-regexp)
     (ess-help-sec-regex			. ess-help-r-sec-regex)
     (ess-help-sec-keys-alist		. ess-help-r-sec-keys-alist)
@@ -516,15 +483,12 @@ end keywords as associated values.")
     (ess-object-name-db-file		. "ess-r-namedb.el" )
     ;; (ess-imenu-mode-function		. nil)
     (ess-smart-operators		. ess-r-smart-operators)
-    (inferior-ess-help-filetype        . nil)
     (inferior-ess-exit-command		. "exit\n")
     ;;harmful for shell-mode's C-a: -- but "necessary" for ESS-help?
-    (inferior-ess-start-file		. nil) ;; "~/.ess-R"
-    (inferior-ess-start-args		. "")
     (inferior-ess-language-start	. nil)
     (ess-STERM		. "iESS")
     )
-  "Variables to customize for Gretl -- set up later than emacs initialization.")
+  "Variables to customize for Gretl -- set up later than Emacs initialization.")
 
 ;; (defcustom inferior-gretl-program "gretlcli"
 ;;   "*The program to use for running gretl scripts."
@@ -538,38 +502,30 @@ end keywords as associated values.")
 ;; command for that version of Julia is made available.  ")
 
 (defcustom inferior-gretl-args ""
-  "String of arguments used when starting gretl.
-These arguments are currently not passed to other versions of gretl that have
-been created using the variable `ess-r-versions'."
+  "String of arguments used when starting gretl."
   :group 'ess-gretl
   :type 'string)
 
 ;;;###autoload
-(defun gretl-mode  (&optional proc-name)
+(define-derived-mode ess-gretl-mode ess-mode "ESS[gretl]"
   "Major mode for editing gretl source.  See `ess-mode' for more help."
-  (interactive "P")
-  ;; (setq ess-customize-alist gretl-customize-alist)
   ;;(setq imenu-generic-expression R-imenu-generic-expression)
-  (ess-mode gretl-customize-alist proc-name)
-  ;; for emacs < 24
-  ;; (add-hook 'comint-dynamic-complete-functions 'ess-complete-object-name nil 'local)
-  ;; for emacs >= 24
-  ;; (remove-hook 'completion-at-point-functions 'ess-filename-completion 'local) ;; should be first
-  ;; (add-hook 'completion-at-point-functions 'ess-object-completion nil 'local)
-  ;; (add-hook 'completion-at-point-functions 'ess-filename-completion nil 'local)
-  (if (fboundp 'ess-add-toolbar) (ess-add-toolbar))
-  (set (make-local-variable 'end-of-defun-function) 'ess-end-of-function)
-  ;; (local-set-key  "\t" 'gretl-indent-line) ;; temp workaround
-  ;; (set (make-local-variable 'indent-line-function) 'gretl-indent-line)
-  ;; (ess-imenu-gretl)
-  (run-mode-hooks 'gretl-mode-hook))
+  (ess-setq-vars-local gretl-customize-alist)
+  (setq font-lock-defaults `(,gretl-font-lock-keywords))
+  (setq-local paragraph-start (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-separate (concat "\\s-*$\\|" page-delimiter))
+  (setq-local paragraph-ignore-fill-prefix t)
+  (setq-local comment-start "# ")
+  (setq-local comment-add 1)
+  (setq-local comment-start-skip "\\s<+\\s-*")
+  (setq-local comment-column 40)
+  (setq-local indent-line-function #'gretl-indent-line)
+  (setq-local ess-local-customize-alist gretl-customize-alist)
+  (when (fboundp 'ess-add-toolbar) (ess-add-toolbar)))
 
 
 (defvar ess-gretl-post-run-hook nil
-  "Functions run in process buffer after the initialization of
-  Gretl process.")
-
-
+  "Functions run in process buffer after Gretl starts.")
 
 ;;;###autoload
 (defun gretl (&optional start-args)
@@ -582,30 +538,29 @@ to gretl, put them in the variable `inferior-gretl-args'."
   ;; get settings, notably inferior-ess-r-program :
   ;; (if (null inferior-gretl-program)
   ;;     (error "'inferior-gretl-program' does not point to 'gretl-release-basic' executable")
-  (setq ess-customize-alist gretl-customize-alist)
   (ess-write-to-dribble-buffer   ;; for debugging only
    (format
     "\n(Gretl): ess-dialect=%s, buf=%s"
     ess-dialect (current-buffer)))
   (let* ((r-start-args
-	  (concat inferior-gretl-args " " ; add space just in case
-		  (if start-args
-		      (read-string
-		       (concat "Starting Args [other than `"
-			       inferior-gretl-args
-			       "'] ? "))
-		    nil))))
-    (inferior-ess r-start-args)
-    (set (make-local-variable 'indent-line-function) 'gretl-indent-line)
-    (set (make-local-variable 'gretl-basic-offset) 4)
+	      (concat inferior-gretl-args " " ; add space just in case
+		          (if start-args
+		              (read-string
+		               (concat "Starting Args [other than `"
+			                   inferior-gretl-args
+			                   "'] ? "))
+		            nil)))
+         (inf-buf (inferior-ess r-start-args gretl-customize-alist)))
+    (setq-local indent-line-function 'gretl-indent-line)
+    (setq-local gretl-basic-offset 4)
     (setq indent-tabs-mode nil)
     (goto-char (point-max))
     ;; (if inferior-ess-language-start
     ;; 	(ess-eval-linewise inferior-ess-language-start
     ;; 			   nil nil nil 'wait-prompt)))
-    (with-ess-process-buffer nil
+    (with-current-buffer inf-buf
       (run-mode-hooks 'ess-gretl-post-run-hook))
-    ))
+    inf-buf))
 
 
 ;;;; IMENU
@@ -641,9 +596,6 @@ to gretl, put them in the variable `inferior-gretl-args'."
 ;;   (setq imenu-generic-expression gretl-imenu-generic-expression)
 ;;   (imenu-add-to-menubar "Imenu-jl"))
 
-
-(provide 'ess-gretl)
-;; (provide 'ess-gretl)
 
 (provide 'ess-gretl)
 

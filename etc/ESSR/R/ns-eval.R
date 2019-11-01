@@ -18,6 +18,7 @@
                    fallback_env = fallback_env, local_env = local_env)
 }
 
+
 ##' Source FILE into an environment. After having a look at each new object in
 ##' the environment, decide what to do with it. Handles plain objects,
 ##' functions, existing S3 methods, S4 classes and methods.
@@ -140,27 +141,31 @@
     }
 
     ## deal with new plain objects and functions
-    for(this in intersect(newPkg, newNs)){
+    for (this in intersect(newPkg, newNs)) {
         thisEnv <- get(this, envir = env, inherits = FALSE)
-        if(exists(this, envir = fallback_env, inherits = FALSE)){
+        if (exists(this, envir = fallback_env, inherits = FALSE)){
             thisGl <- get(this, envir = fallback_env)
-            if(.ess.differs(thisEnv, thisGl)){
-                if(is.function(thisEnv)){
+            if (.ess.differs(thisEnv, thisGl)) {
+                if (is.function(thisEnv)) {
                     environment(thisEnv) <- envns
                     newFunc <- c(newFunc, this)
-                }else{
+                } else {
                     newObjects <- c(newObjects, this)
                 }
                 .ess.assign(this, thisEnv, fallback_env)
+                if (.is.essenv(fallback_env))
+                    .ess.assign(this, thisEnv, .GlobalEnv)
             }
-        }else{
-            if(is.function(thisEnv)){
+        } else {
+            if (is.function(thisEnv)) {
                 environment(thisEnv) <- envns
                 newFunc <- c(newFunc, this)
-            }else{
+            } else {
                 newObjects <- c(newObjects, this)
             }
             .ess.assign(this, thisEnv, fallback_env)
+            if (.is.essenv(fallback_env))
+                .ess.assign(this, thisEnv, .GlobalEnv)
         }
     }
 
@@ -265,6 +270,7 @@
     invisible(env)
 }
 
+
 .ess.ns_insertMethods <- function(tableEnv,  tablePkg, envns) {
     inserted <- character()
     for(m in ls(envir = tableEnv, all.names = T)){
@@ -307,6 +313,7 @@
     env
 }
 
+
 .ess.assign <- function(x, value, envir) {
     ## Cannot add bindings to locked environments
     exists <- exists(x, envir = envir, inherits = FALSE)
@@ -345,6 +352,7 @@
         !identical(f1, f2)
 }
 
+
 .ess.is_package <- function(envName) {
   isPkg <- identical(substring(envName, 0, 8), "package:")
   isPkg && (envName != "package:base")
@@ -360,6 +368,7 @@
 
   containsObj
 }
+
 
 .ess.ns_format_deps <- function(dependentPkgs) {
     pkgs <- unique(unlist(dependentPkgs, use.names = FALSE))
@@ -380,6 +389,7 @@
     name
 }
 
+
 .ess.ns_insert_essenv <- function(nsenv) {
     if (is.character(nsenv))
         nsenv <- base::asNamespace(nsenv)
@@ -392,6 +402,7 @@
         return(nsenv_parent)
     }
     essenv <- new.env(parent = nsenv_parent)
+    essenv[[".__ESSENV__."]] <- TRUE
     attr(essenv, "name") <- essenv_name
     nssym <- ".__NAMESPACE__."
     nssym_val <- get(nssym, envir = nsenv, inherits = FALSE)
@@ -405,7 +416,6 @@
     essenv
 }
 
-
-## Local Variables:
-## eval: (ess-set-style 'RRR t)
-## End:
+.is.essenv <- function(env) {
+    exists(".__ESSENV__.", envir = env, inherits = FALSE)
+}

@@ -1,7 +1,7 @@
-;;; ess-rdired.el --- prototype object browser for R, looks like dired mode.
+;;; ess-rdired.el --- prototype object browser for R, looks like dired mode.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002--2004 A.J. Rossini, Richard M. Heiberger, Martin
-;;      Maechler, Kurt Hornik, Rodney Sparapani, and Stephen Eglen.
+;; Copyright (C) 2002--2019 A.J. Rossini, Richard M. Heiberger, Martin
+;;      Maechler, Kurt Hornik, Rodney Sparapani, Stephen Eglen, and J. Alexander Branham.
 
 ;; Author: Stephen Eglen <stephen@anc.ed.ac.uk>
 ;; Created: Thu 24 Oct 2002
@@ -31,10 +31,8 @@
 
 ;;; Commentary:
 
-;; Installation and usage.
+;; Do "M-x R" to start an R session, then create a few variables:
 ;;
-;; After loading this file, do "M-x R" to start an R session, then
-;; create a few variables:
 ;; s <- sin(seq(from=0, to=8*pi, length=100))
 ;; x <- c(1, 4, 9)
 ;; y <- rnorm(20)
@@ -42,25 +40,21 @@
 
 ;; Then in Emacs, do "M-x ess-rdired" and you should see the following in
 ;; the buffer *R dired*:
-;;        mode length
-;;   s numeric    100
-;;   x numeric      3
-;;   y numeric     20
-;;   z logical      1
+;; Name              Class    Length     Size
+;; s                  numeric    100        848 bytes
+;; x                  numeric    3          80 bytes
+;; y                  numeric    20         208 bytes
+;; z                  logical    1          56 bytes
 
 ;; Type "?" in the buffer to see the documentation.  e.g. when the
 ;; cursor is on the line for `s', type 'p' to plot it, or `v' to view
-;; its contents in a buffer.  Then type 'd' to mark it for deletion.
+;; its contents in a buffer.  Then type 'd' to delete it.
 
 ;; How it works.
 
-;; Most of the hardwork is done by the R routine .rdired.objects(),
+;; Most of the hard work is done by the R routine .rdired.objects(),
 ;; which, when called, produces the list of objects in a tidy format.
-;; This function is stored within the Lisp variable `ess-rdired-objects',
-;; and can be altered to provide other information if you so need it.
-;; (Martin Maechler suggested providing output from str() here.)
-
-;; Todo - compare functionality with ess-mouse-me (ess-mous.el).
+;; This function is stored within the Lisp variable `ess-rdired-objects'.
 
 ;; Todo - How to select alternative environments?  Currently only
 ;; shows objects in the .GlobalEnv?  See BrowseEnv() in 1.6.x for way
@@ -79,10 +73,12 @@
 
 ;;; Code:
 
-(require 'ess-custom)
 (require 'ess-inf)
 
-(defvar ess-rdired-objects "{.rdired.objects <- function(objs) {
+(eval-when-compile
+  (require 'subr-x))
+
+(defvar ess-rdired-objects "local({.rdired.objects <- function(objs) {
   if (length(objs)==0) {
     \"No objects to view!\"
   } else {
@@ -91,7 +87,7 @@
   length <- sapply(objs, function(my.x) {
     eval( parse( text=sprintf('length(get(\"%s\"))', my.x))) })
   size <- sapply(objs, function(my.x) {
-    eval( parse( text=sprintf('format(object.size(get(\"%s\")), units=\"auto\")', my.x))) })
+    eval( parse( text=sprintf('format(object.size(get(\"%s\")), units=\"b\")', my.x))) })
   d <- data.frame(mode, length, size)
 
   var.names <- row.names(d)
@@ -105,7 +101,11 @@
   row.names(d) <- paste('  ', var.names, sep='')
   d
   }
+<<<<<<< HEAD
 }; cat('\n'); print(.rdired.objects(ls(all.names=TRUE)))}\n"
+=======
+}; cat('\n'); print(.rdired.objects(ls(envir = .GlobalEnv)))})\n"
+>>>>>>> d31b96e02cb4c5d71effab893da9cd81f30d0470
   "Function to call within R to print information on objects.
 The last line of this string should be the instruction to call
 the function which prints the output for rdired.")
@@ -113,7 +113,17 @@ the function which prints the output for rdired.")
 (defvar ess-rdired-buffer "*R dired*"
   "Name of buffer for displaying R objects.")
 
+(defvar ess-rdired-auto-update-timer nil
+  "The timer object for auto updates.")
+
+(defcustom ess-rdired-auto-update-interval 5
+  "Seconds between refreshes of the `ess-rdired' buffer."
+  :type '(choice (const nil :tag "No auto updates") (integer :tag "Seconds"))
+  :group 'ess-R
+  :package-version '(ess . "19.04"))
+
 (defvar ess-rdired-mode-map
+<<<<<<< HEAD
   (let ((ess-rdired-mode-map (make-sparse-keymap)))
     (if (require 'hide-lines nil t)
         (define-key ess-rdired-mode-map "/" 'hide-lines))
@@ -150,31 +160,47 @@ the function which prints the output for rdired.")
     ess-rdired-mode-map))
 
 (defun ess-rdired-mode ()
+=======
+  (let ((map (make-sparse-keymap)))
+    (define-key map "d" #'ess-rdired-delete)
+    (define-key map "x" #'ess-rdired-delete)
+    (define-key map "v" #'ess-rdired-view)
+    (define-key map "V" #'ess-rdired-View)
+    (define-key map "p" #'ess-rdired-plot)
+    (define-key map "y" #'ess-rdired-type)
+    (define-key map "\C-c\C-s" #'ess-rdired-switch-process)
+    (define-key map "\C-c\C-y" #'ess-switch-to-ESS)
+    (define-key map "\C-c\C-z" #'ess-switch-to-end-of-ESS)
+    map))
+
+(define-derived-mode ess-rdired-mode tabulated-list-mode "Rdired"
+>>>>>>> d31b96e02cb4c5d71effab893da9cd81f30d0470
   "Major mode for output from `ess-rdired'.
 `ess-rdired' provides a dired-like mode for R objects.  It shows the
 list of current objects in the current environment, one-per-line.  You
-can then examine these objects, plot them, and so on.
-\\{ess-rdired-mode-map}"
-  ;; (kill-all-local-variables)
-  (make-local-variable 'revert-buffer-function)
-  (setq revert-buffer-function 'ess-rdired-revert-buffer)
-  (use-local-map ess-rdired-mode-map)
-  (setq major-mode 'ess-rdired-mode)
+can then examine these objects, plot them, and so on."
+  :group 'ess-R
   (setq mode-name (concat "RDired " ess-local-process-name))
-  (run-mode-hooks 'ess-rdired-mode-hook))
-
-(defun ess-rdired-mode-hook  nil
-  "Run upon entering `ess-rdired-mode'.")
-
-(defvar ess-rdired-sort-num nil)        ;silence the compiler.
-;; but see following defun -- maybe it should be buffer local.
+  (setq tabulated-list-format
+        `[("Name" 18 t)
+          ("Class" 10 t)
+          ("Length" 10 ess-rdired--length-predicate)
+          ("Size" 10 ess-rdired--size-predicate)])
+  (add-hook 'tabulated-list-revert-hook #'ess-rdired-refresh nil t)
+  (when (and (not ess-rdired-auto-update-timer)
+             ess-rdired-auto-update-interval)
+    (setq ess-rdired-auto-update-timer
+          (run-at-time t ess-rdired-auto-update-interval #'ess-rdired-refresh)))
+  (add-hook 'kill-buffer-hook #'ess-rdired-cancel-auto-update-timer nil t)
+  (tabulated-list-init-header))
 
 ;;;###autoload
 (defun ess-rdired ()
-  "Run dired-like mode on R objects.
-This is the main function.  See documentation for `ess-rdired-mode' though
-for more information!"
+  "Show R objects from the global environment in a separate buffer.
+You may interact with these objects, see `ess-rdired-mode' for
+details."
   (interactive)
+<<<<<<< HEAD
   (let  ((proc ess-local-process-name)
          (buff (get-buffer-create ess-rdired-buffer)))
 
@@ -227,19 +253,82 @@ Handle special case when object contains spaces."
              (setq beg (point))
              (search-forward " ") ;assume space follows object name.
              (buffer-substring-no-properties beg (1- (point))))))))
+=======
+  (unless (and (string= "R" ess-dialect)
+               ess-local-process-name)
+    (error "Not in an R buffer with attached process"))
+  (let ((proc ess-local-process-name))
+    (pop-to-buffer (get-buffer-create ess-rdired-buffer))
+    (setq ess-local-process-name proc)
+    (ess-rdired-mode)
+    (ess-rdired-refresh)))
+
+(defun ess-rdired-refresh ()
+  "Refresh the `ess-rdired' buffer."
+  (let* ((buff (get-buffer-create ess-rdired-buffer))
+         (proc-name (buffer-local-value 'ess-local-process-name buff))
+         (proc (get-process proc-name))
+         (out-buff (get-buffer-create " *ess-rdired-output*"))
+         text)
+    (when (and proc-name proc
+               (not (process-get proc 'busy)))
+      (ess-command ess-rdired-objects out-buff nil nil nil proc)
+      (with-current-buffer out-buff
+        (goto-char (point-min))
+        ;; Delete two lines. One filled with +'s from R's prompt
+        ;; printing, the other with the header info from the data.frame
+        (delete-region (point-min) (1+ (point-at-eol 2)))
+        (setq text (split-string (buffer-string) "\n" t "\n"))
+        (erase-buffer))
+      (with-current-buffer buff
+        (setq tabulated-list-entries
+              (mapcar #'ess-rdired--tabulated-list-entries text))
+        (let ((entry (tabulated-list-get-id))
+              (col (current-column)))
+          (tabulated-list-print)
+          (while (not (equal entry (tabulated-list-get-id)))
+            (forward-line))
+          (move-to-column col))))))
+
+(defun ess-rdired-cancel-auto-update-timer ()
+  "Cancel the timer `ess-rdired-auto-update-timer'."
+  (setq ess-rdired-auto-update-timer
+        (cancel-timer ess-rdired-auto-update-timer)))
+
+(defun ess-rdired--tabulated-list-entries (text)
+  "Return a value suitable for `tabulated-list-entries' from TEXT."
+  (let (name class length size)
+    (if (not (string-match-p " +\"" text))
+        ;; Normal-world
+        (setq text (split-string text " " t)
+              name (nth 0 text)
+              text (cdr text))
+      ;; Else, someone has spaces in their variable names
+      (string-match "\"\\([^\"]+\\)" text)
+      (setq name (substring (match-string 0 text) 1)
+            text (split-string (substring text (1+ (match-end 0))) " " t)))
+    (setq class (nth 0 text)
+          length (nth 1 text)
+          size (nth 2 text))
+    (list name
+          `[(,name
+             help-echo "mouse-2, RET: View this object"
+             action ess-rdired-view)
+            ,class
+            ,length
+            ,size])))
+>>>>>>> d31b96e02cb4c5d71effab893da9cd81f30d0470
 
 (defun ess-rdired-edit ()
-  "Edit (fix) the object at point."
+  "Edit the object at point."
   (interactive)
-  (let ((objname (ess-rdired-object)))
-    (ess-command (concat "edit(" objname ")\n"))))
+  (ess-command (concat "edit(" (tabulated-list-get-id) ")\n")))
 
-(defun ess-rdired-view ()
+(defun ess-rdired-view (&optional _button)
   "View the object at point."
   (interactive)
-  (let ((objname (ess-rdired-object)))
-    (ess-execute (ess-rdired-get objname)
-                 nil "R view" )))
+  (ess-execute (ess-rdired-get (tabulated-list-get-id))
+               nil "R view" ))
 
 (defun ess-rdired-get (name)
   "Generate R code to get the value of the variable NAME.
@@ -254,15 +343,15 @@ Otherwise, we could just pass the variable name directly to *R*."
       name
     (concat "\"" name "\"")))
 
-
 (defun ess-rdired-View ()
   "View the object at point in its own buffer.
 Like `ess-rdired-view', but the object gets its own buffer name."
   (interactive)
-  (let ((objname (ess-rdired-object)))
+  (let ((objname (tabulated-list-get-id)))
     (ess-execute (ess-rdired-get objname)
-     nil (concat "R view " objname ))))
+                 nil (concat "R view " objname ))))
 
+<<<<<<< HEAD
 (defmacro ess-rdired-defun (cmd docstring)
   (declare (indent defun) (doc-string 2))
   (let ((gfun (intern (concat "ess-rdired-" cmd))))
@@ -278,13 +367,18 @@ Like `ess-rdired-view', but the object gets its own buffer name."
 
 (ess-rdired-defun "plot"
   "Plot the object on current line.")
+=======
+(defun ess-rdired-plot ()
+  "Plot the object on current line."
+  (interactive)
+  (let ((objname (tabulated-list-get-id)))
+    (ess-eval-linewise (format "plot(%s)" (ess-rdired-get objname)))))
+>>>>>>> d31b96e02cb4c5d71effab893da9cd81f30d0470
 
 (defun ess-rdired-type ()
-  "Run the mode() on command at point.
-Named type because of similarity with the dired command bound to
-y key."
+  "Run the mode() on command at point."
   (interactive)
-  (let ((objname (ess-rdired-object))
+  (let ((objname (tabulated-list-get-id))
         ;; create a temp buffer, and then show output in echo area
         (tmpbuf (get-buffer-create "**ess-rdired-mode**")))
     (if objname
@@ -292,131 +386,14 @@ y key."
           (ess-command (concat "mode(" (ess-rdired-get objname) ")\n")
                        tmpbuf )
           (set-buffer tmpbuf)
-          (message (concat
-                    objname ": "
-                    (buffer-substring (+ 4 (point-min)) (1- (point-max)))))
+          (message "%s" (concat
+                         objname ": "
+                         (buffer-substring (+ 4 (point-min)) (1- (point-max)))))
           (kill-buffer tmpbuf)))))
 
-(defun ess-rdired-delete (arg)
-  "Mark the current (or next ARG) objects for deletion.
-If point is on first line, all objects are marked for deletion."
-  (interactive "p")
-  (ess-rdired-mark "D" arg))
+(defalias 'ess-rdired-expunge #'ess-rdired-delete)
 
-(defun ess-rdired-undelete (arg)
-  "Unmark the current (or next ARG) objects.
-If point is on first line, all objects will be unmarked."
-  (interactive "p")
-  (ess-rdired-mark " " arg))
-
-(defun ess-rdired-mark (mark-char arg)
-  "Mark the object, using MARK-CHAR,  on current line (or next ARG lines)."
-  ;; If we are on first line, mark all lines.
-  (let ((buffer-read-only nil)
-        move)
-    (if (eq (point-min)
-            (save-excursion (beginning-of-line) (point)))
-        (progn
-          ;; we are on first line, so make a note of point, and count
-          ;; how many objects we want to delete.  Then at end of defun,
-          ;; restore point.
-          (setq move (point))
-          (forward-line 1)
-          (setq arg (count-lines (point) (point-max)))))
-    (while (and (> arg 0) (not (eobp)))
-      (setq arg (1- arg))
-      (beginning-of-line)
-      (progn
-        (insert mark-char)
-        (delete-char 1)
-        (forward-line 1)))
-    (if move
-        (goto-char move))))
-
-
-(defun ess-rdired-expunge ()
-  "Delete the marked objects.
-User is queried first to check that objects should really be deleted."
-  (interactive)
-  (let ((objs "rm(")
-        (count 0))
-    (save-excursion
-      (goto-char (point-min)) (forward-line 1)
-      (while (< (count-lines (point-min) (point))
-                (count-lines (point-min) (point-max)))
-        (beginning-of-line)
-        (if (looking-at "^D ")
-            (setq count (1+ count)
-                  objs (concat objs (ess-rdired-object) ", " )))
-        (forward-line 1)
-        ))
-    (if (> count 0)
-        ;; found objects to delete
-        (progn
-          (setq objs (concat
-                      (substring objs 0 (- (length objs) 2))
-                      ")\n"))
-          (if (yes-or-no-p (format "Delete %d %s " count
-                                   (if (> count 1) "objects" "object")))
-              (progn
-                (ess-eval-linewise objs nil nil nil 'wait)
-                (ess-rdired)
-                )))
-      ;; else nothing to delete
-      (message "no objects set to delete")
-      )))
-
-;; Fancy delete method, based on dired.  Bit too much for our needs?
-;; (defun ess-rdired-expunge ()
-;;   "Delete the marked objects.
-;; User is queried first to check that objects should really be deleted."
-;;   (interactive)
-;;   (let ((objs)
-;;      (cmd "rm("))
-;;     (save-excursion
-;;       (goto-line 2)
-;;       (while (< (count-lines (point-min) (point))
-;;              (count-lines (point-min) (point-max)))
-;;      (beginning-of-line)
-;;      (if (looking-at "^D ")
-;;          (progn
-;;            (setq objs (cons (ess-rdired-object) objs ))
-;;            (setq cmd (concat cmd (ess-rdired-object) ", "))
-;;            ))
-;;      (forward-line 1)
-;;      ))
-;;     (if (> (length objs) 0)
-;;      ;; found objects to delete
-;;      (if
-;;          (dired-mark-pop-up "*RDired deletions*" 'delete
-;;                             objs dired-deletion-confirmer
-;;                             (format "delete %s "
-;;                                     (dired-mark-prompt nil objs)))
-;;          ;; should delete the objects.
-;;          (progn
-;;            (setq cmd (concat (substring cmd 0 (- (length cmd) 2))
-;;                              ")\n"))
-;;            (ess-command cmd)
-;;            (ess-rdired)))
-;;       ;; else nothing to delete
-;;       (message "no objects set to delete")
-;;       )))
-
-(defun ess-rdired-quit ()
-  "Quit the R dired buffer."
-  (interactive)
-  (kill-buffer ess-rdired-buffer))
-
-(defun ess-rdired-revert-buffer (ignore noconfirm)
-  "Update the buffer list (in case object list has changed).
-Arguments IGNORE and NOCONFIRM currently not used."
-  (ess-rdired))
-
-(defun ess-rdired-help ()
-  "Show help for `ess-rdired-mode'."
-  (interactive)
-  (describe-function 'ess-rdired-mode))
-
+<<<<<<< HEAD
 (defun ess-rdired-sort ()
   "Sort the rdired output according to one of the columns.
 Rotate between the alternative sorting methods."
@@ -497,6 +474,15 @@ Optional prefix ARG says how many lines to move; default is one line."
        '(mouse-face highlight
                     help-echo "mouse-2: view object in other window"))
       (forward-line 1))))
+=======
+(defun ess-rdired-delete ()
+  "Delete the object at point."
+  (interactive)
+  (let ((objname (tabulated-list-get-id)))
+    (when (yes-or-no-p (format "Really delete %s? " objname))
+      (ess-eval-linewise (format "rm(%s)" (ess-rdired-quote objname)) nil nil nil t)
+      (revert-buffer))))
+>>>>>>> d31b96e02cb4c5d71effab893da9cd81f30d0470
 
 (defun ess-rdired-switch-process ()
   "Switch to examine different *R* process.
@@ -506,6 +492,25 @@ After switching to a new process, the buffer is updated."
   (interactive)
   (ess-switch-process)
   (ess-rdired))
+
+(defun ess-rdired--length-predicate (A B)
+  "Enable sorting by length in `ess-rdired' buffers.
+Return t if A's length is < than B's length."
+  (let ((lenA (aref (cadr A) 2))
+        (lenB (aref (cadr B) 2)))
+    (< (string-to-number lenA) (string-to-number lenB))))
+
+(defun ess-rdired--size-predicate (A B)
+  "Enable sorting by size in `ess-rdired' buffers.
+Return t if A's size is < than B's size."
+  (let ((lenA (aref (cadr A) 3))
+        (lenB (aref (cadr B) 3)))
+    (< (string-to-number lenA) (string-to-number lenB))))
+
+(define-obsolete-function-alias 'ess-rdired-quit #'quit-window "ESS 19.04")
+(define-obsolete-function-alias 'ess-rdired-next-line #'forward-to-indentation "ESS 19.04")
+(define-obsolete-function-alias 'ess-rdired-previous-line #'backward-to-indentation "ESS 19.04")
+(define-obsolete-function-alias 'ess-rdired-move-to-object #'back-to-indentation "ESS 19.04")
 
 (provide 'ess-rdired)
 

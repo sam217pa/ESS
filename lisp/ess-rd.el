@@ -1,4 +1,4 @@
-;; ess-rd.el --- Support for editing R documentation (Rd) source
+;; ess-rd.el --- Support for editing R documentation (Rd) source  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1997--2005  A.J. Rossini, Richard M. Heiberger, Martin
 ;;      Maechler, Kurt Hornik, Rodney Sparapani, and Stephen Eglen.
@@ -29,94 +29,92 @@
 ;;
 
 ;;; Code:
-(require 'ess-custom)
-(require 'ess-utils)
+(eval-when-compile
+  (require 'subr-x))
+
 (require 'ess-help)
 (require 'ess-inf)
 ;; Silence the byte compiler, see TODO below; can we remove these?
 (defvar ess-help-r-sec-regex)
 (defvar ess-help-r-sec-keys-alist)
-
 (defvar ess-r-customize-alist)
 
-(defvar essddr-version "0.9-1"
-  "Current version of ess-rd.el.")
+(defcustom Rd-mode-hook nil
+  "Hook to be run when Rd mode is entered."
+  :type 'hook
+  :group 'ess-R
+  :group 'ess-hooks)
 
-(defvar essddr-maintainer-address
-  "ESS Core Team <ess-core@r-project.org>"
-  "Current maintainer of ess-rd.el.")
-
-(defvar Rd-mode-abbrev-table nil
+(define-abbrev-table 'Rd-mode-skeleton-abbrev-table
+  '(("`ag" "\\arguments" nil :system t)
+    ("`al" "\\alias" nil :system t)
+    ("`au" "\\author" nil :system t)
+    ("`bf" "\\bold" nil :system t)
+    ("`co" "\\code" nil :system t)
+    ("`de" "\\describe" nil :system t)
+    ("`dn" "\\description" nil :system t)
+    ("`dt" "\\details" nil :system t)
+    ("`em" "\\emph" nil :system t)
+    ("`en" "\\enumerate" nil :system t)
+    ("`ex" "\\examples" nil :system t)
+    ("`fi" "\\file" nil :system t)
+    ("`fo" "\\format" nil :system t)
+    ("`it" "\\item" nil :system t)
+    ("`iz" "\\itemize" nil :system t)
+    ("`kw" "\\keyword" nil :system t)
+    ("`li" "\\link" nil :system t)
+    ("`me" "\\method" nil :system t)
+    ("`na" "\\name" nil :system t)
+    ("`no" "\\note" nil :system t)
+    ("`re" "\\references" nil :system t)
+    ("`sa" "\\seealso" nil :system t)
+    ("`se" "\\section" nil :system t)
+    ("`so" "\\source" nil :system t)
+    ("`ss" "\\subsection" nil :system t)
+    ("`sy" "\\synopsis" nil :system t)
+    ("`ta" "\\tabular" nil :system t)
+    ("`ti" "\\title" nil :system t)
+    ("`us" "\\usage" nil :system t)
+    ("`va" "\\value" nil :system t))
   "Abbrev table for R documentation keywords.
-All Rd mode abbrevs start with a grave accent (`).")
-(if Rd-mode-abbrev-table
-    ()
-  (define-abbrev-table 'Rd-mode-abbrev-table ())
-  (define-abbrev Rd-mode-abbrev-table "`ag" "\\arguments")
-  (define-abbrev Rd-mode-abbrev-table "`al" "\\alias")
-  (define-abbrev Rd-mode-abbrev-table "`au" "\\author")
-  (define-abbrev Rd-mode-abbrev-table "`bf" "\\bold")
-  (define-abbrev Rd-mode-abbrev-table "`co" "\\code")
-  (define-abbrev Rd-mode-abbrev-table "`de" "\\describe")
-  (define-abbrev Rd-mode-abbrev-table "`dn" "\\description")
-  (define-abbrev Rd-mode-abbrev-table "`dt" "\\details")
-  (define-abbrev Rd-mode-abbrev-table "`em" "\\emph")
-  (define-abbrev Rd-mode-abbrev-table "`en" "\\enumerate")
-  (define-abbrev Rd-mode-abbrev-table "`ex" "\\examples")
-  (define-abbrev Rd-mode-abbrev-table "`fi" "\\file")
-  (define-abbrev Rd-mode-abbrev-table "`fo" "\\format")
-  (define-abbrev Rd-mode-abbrev-table "`it" "\\item")
-  (define-abbrev Rd-mode-abbrev-table "`iz" "\\itemize")
-  (define-abbrev Rd-mode-abbrev-table "`kw" "\\keyword")
-  (define-abbrev Rd-mode-abbrev-table "`li" "\\link")
-  (define-abbrev Rd-mode-abbrev-table "`me" "\\method")
-  (define-abbrev Rd-mode-abbrev-table "`na" "\\name")
-  (define-abbrev Rd-mode-abbrev-table "`no" "\\note")
-  (define-abbrev Rd-mode-abbrev-table "`re" "\\references")
-  (define-abbrev Rd-mode-abbrev-table "`sa" "\\seealso")
-  (define-abbrev Rd-mode-abbrev-table "`se" "\\section")
-  (define-abbrev Rd-mode-abbrev-table "`so" "\\source")
-  (define-abbrev Rd-mode-abbrev-table "`ss" "\\subsection")
-  (define-abbrev Rd-mode-abbrev-table "`sy" "\\synopsis")
-  (define-abbrev Rd-mode-abbrev-table "`ta" "\\tabular")
-  (define-abbrev Rd-mode-abbrev-table "`ti" "\\title")
-  (define-abbrev Rd-mode-abbrev-table "`us" "\\usage")
-  (define-abbrev Rd-mode-abbrev-table "`va" "\\value"))
+All Rd mode abbrevs start with a grave accent (`)."
+  :case-fixed t)
 
-(defvar Rd-mode-syntax-table nil
-  "Syntax table for Rd mode.")
-(if Rd-mode-syntax-table
-    ()
-  (setq Rd-mode-syntax-table (copy-syntax-table text-mode-syntax-table))
-  (modify-syntax-entry ?\\ "\\" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\{ "(}" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\} "){" Rd-mode-syntax-table)
-  ;; Nice for editing, not for parsing ...
-  (modify-syntax-entry ?\( "()" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\) ")(" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\[ "(]" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\] ")[" Rd-mode-syntax-table)
-  ;; To get strings right
-  ;; (modify-syntax-entry ?\' "\"" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\" "\"" Rd-mode-syntax-table)
-  ;; To make abbrevs starting with a grave accent work ...
-  (modify-syntax-entry ?\` "w" Rd-mode-syntax-table)
-  ;; Comments
-  (modify-syntax-entry ?\% "<" Rd-mode-syntax-table)
-  (modify-syntax-entry ?\n ">" Rd-mode-syntax-table))
+(define-abbrev-table 'Rd-mode-abbrev-table ()
+  "Abbrev table for Rd mode."
+  :parents (list Rd-mode-skeleton-abbrev-table))
 
-(defvar Rd-mode-parse-syntax-table nil
+(defvar Rd-mode-syntax-table
+  (let ((tab (copy-syntax-table text-mode-syntax-table)))
+    (modify-syntax-entry ?\\ "\\" tab)
+    (modify-syntax-entry ?\{ "(}" tab)
+    (modify-syntax-entry ?\} "){" tab)
+    ;; Nice for editing, not for parsing ...
+    (modify-syntax-entry ?\( "()" tab)
+    (modify-syntax-entry ?\) ")(" tab)
+    (modify-syntax-entry ?\[ "(]" tab)
+    (modify-syntax-entry ?\] ")[" tab)
+    ;; To get strings right
+    ;; (modify-syntax-entry ?\' "\"" Rd-mode-syntax-table)
+    (modify-syntax-entry ?\" "\"" tab)
+    ;; To make abbrevs starting with a grave accent work ...
+    (modify-syntax-entry ?\` "w" tab)
+    ;; Comments
+    (modify-syntax-entry ?\% "<" tab)
+    (modify-syntax-entry ?\n ">" tab)
+    tab)
+  "Syntax table for `Rd-mode'.")
+
+(defvar Rd-mode-parse-syntax-table
+  (let ((tab (copy-syntax-table Rd-mode-syntax-table)))
+    ;; To make parse-partial-sexps do the thing we want for computing
+    ;; indentations
+    (modify-syntax-entry ?\( "_" tab)
+    (modify-syntax-entry ?\) "_" tab)
+    (modify-syntax-entry ?\[ "_" tab)
+    (modify-syntax-entry ?\] "_" tab)
+    tab)
   "Syntax table for parsing Rd mode.")
-(if Rd-mode-parse-syntax-table
-    ()
-  (setq Rd-mode-parse-syntax-table
-        (copy-syntax-table Rd-mode-syntax-table))
-  ;; To make parse-partial-sexps do the thing we want for computing
-  ;; indentations
-  (modify-syntax-entry ?\( "_" Rd-mode-parse-syntax-table)
-  (modify-syntax-entry ?\) "_" Rd-mode-parse-syntax-table)
-  (modify-syntax-entry ?\[ "_" Rd-mode-parse-syntax-table)
-  (modify-syntax-entry ?\] "_" Rd-mode-parse-syntax-table))
 
 (defvar Rd-section-names
   '("Rdversion" "arguments" "alias" "author" "concept" "describe" "description"
@@ -147,13 +145,6 @@ All Rd mode abbrevs start with a grave accent (`).")
     "packageMaintainer" "packageDESCRIPTION" "packageIndices"
     ))
 
-;; Need to fix Rd-bold-face problem.
-;;
-;; (defvar Rd-bold-face 'bold)
-                                        ;(defvar Rd-bold-face nil)
-                                        ;(make-face Rd-bold-face "R documentation bold face")
-                                        ;(make-face-bold Rd-bold-face
-
 (defvar Rd-font-lock-keywords
   (list
    (cons
@@ -173,30 +164,26 @@ All Rd mode abbrevs start with a grave accent (`).")
   "Additional Rd expressions to highlight.")
 
 (defvar Rd-indent-level 2
-  "*Indentation of Rd code with respect to containing blocks.")
+  "Indentation of Rd code with respect to containing blocks.")
 
 (defvar Rd-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "\t" 'indent-according-to-mode)
-    (define-key map "\C-j" 'reindent-then-newline-and-indent)
-    (define-key map "\C-m" 'reindent-then-newline-and-indent)
-    (define-key map "\C-c\C-p" 'Rd-preview-help)
-    (define-key map "\C-c\C-j" 'Rd-mode-insert-item)
-    (define-key map "\C-c\C-e" 'Rd-mode-insert-skeleton)
-    (define-key map "\C-c\C-f" 'Rd-font)
-    ;;  ^C^F ^E : \emph{ . }
-    ;;  ^C^F ^C : \code{ . }
-    ;;  ^C^F ^L : \link{ . }
-    ;;  ^C^F  L : \code{\link{ . }}  etc
-    (define-key map "\C-c\C-s" 'Rd-mode-insert-section)
-    (define-key map "\C-c\C-n" 'ess-eval-line-visibly-and-step)
-    (define-key map "\C-c\C-r" 'ess-eval-region)
-    (define-key map "\C-c\C-c" 'ess-eval-region-or-function-or-paragraph-and-step)
-    (define-key map "\C-\M-x"  'ess-eval-region-or-function-or-paragraph)
-    (define-key map "\C-c\C-v" 'ess-display-help-on-object)
-    (define-key map "\C-c\C-w" 'ess-switch-process); is on C-c C-s in ess-mode..
-    (define-key map "\C-c\C-y" 'ess-switch-to-ESS)
-    (define-key map "\C-c\C-z" 'ess-switch-to-end-of-ESS)
+    (define-key map "\t" #'indent-according-to-mode)
+    (define-key map "\C-j" #'reindent-then-newline-and-indent)
+    (define-key map "\C-m" #'reindent-then-newline-and-indent)
+    (define-key map "\C-c\C-p" #'Rd-preview-help)
+    (define-key map "\C-c\C-j" #'Rd-mode-insert-item)
+    (define-key map "\C-c\C-e" #'Rd-mode-insert-skeleton)
+    (define-key map "\C-c\C-f" #'Rd-font)
+    (define-key map "\C-c\C-s" #'Rd-mode-insert-section)
+    (define-key map "\C-c\C-n" #'ess-eval-line-visibly-and-step)
+    (define-key map "\C-c\C-r" #'ess-eval-region)
+    (define-key map "\C-c\C-c" #'ess-eval-region-or-function-or-paragraph-and-step)
+    (define-key map "\C-\M-x"  #'ess-eval-region-or-function-or-paragraph)
+    (define-key map "\C-c\C-v" #'ess-display-help-on-object)
+    (define-key map "\C-c\C-w" #'ess-switch-process)
+    (define-key map "\C-c\C-y" #'ess-switch-to-ESS)
+    (define-key map "\C-c\C-z" #'ess-switch-to-end-of-ESS)
     map)
   "Keymap used in Rd mode.")
 
@@ -218,17 +205,13 @@ All Rd mode abbrevs start with a grave accent (`).")
         ["Toggle Abbrev Mode"           abbrev-mode t]
         ["Toggle Auto-Fill Mode"        auto-fill-mode t]
         "-"
-        ["Submit Bug Report"            Rd-submit-bug-report t]
+        ["Submit Bug Report"            ess-submit-bug-report t]
         "-"
-        ["Describe Rd Mode"             Rd-describe-major-mode t])
+        ["Describe Rd Mode"             describe-mode t])
   "Menu used in Rd mode.")
-
-(defvar Rd-mode-hook nil
-  "Hook to be run when Rd mode is entered.")
 
 (defvar Rd-to-help-command "R CMD Rd2txt"
   "Shell command for converting R documentation source to help text.")
-
 
 (defvar Rd-font-list
   '((?\C-b "\\bold{"    "}")
@@ -248,94 +231,47 @@ point.")
 
 
 ;;;###autoload
-(defun Rd-mode ()
+(define-derived-mode Rd-mode text-mode "Rd"
   "Major mode for editing R documentation source files.
 
-This mode makes it easier to write R documentation by helping with
-indentation, doing some of the typing for you (with Abbrev mode) and by
-showing keywords, strings, etc. in different faces (with Font Lock mode
-on terminals that support it).
+Type \\[list-abbrevs] to display the built-in abbrevs for Rd
+keywords.To automatically turn on the abbrev(iate) features, add
+the following to your Emacs configuration file:
 
-Type \\[list-abbrevs] to display the built-in abbrevs for Rd keywords.
+  (add-hook 'Rd-mode-hook #'abbrev-mode)"
+  (setq ess-language "S" ess-dialect  "R")
+  (require 'ess-r-mode)
+  (ess-setq-vars-local ess-r-customize-alist)
 
-Keybindings
-===========
-
-\\{Rd-mode-map}
-
-Variables you can use to customize Rd mode
-==========================================
-
-`Rd-indent-level'
-  Indentation of Rd code with respect to containing blocks.
-  Default is 2.
-
-Turning on Rd mode runs the hook `Rd-mode-hook'.
-
-To automatically turn on the abbrev(iate) features, add the
-following lines to your `.emacs' file:
-
-  (add-hook 'Rd-mode-hook
-            (lambda ()
-              (abbrev-mode 1)))"
-
-  (interactive)
-  (text-mode)
-  (kill-all-local-variables)
-  (ess-setq-vars-local ess-r-customize-alist) ;same functionality is available as in R buffers
-  (use-local-map Rd-mode-map)
-  (setq mode-name "Rd")
-  (setq major-mode 'Rd-mode)
-  (setq local-abbrev-table Rd-mode-abbrev-table)
-  (set-syntax-table Rd-mode-syntax-table)
-
-  (set (make-local-variable 'indent-line-function) 'Rd-mode-indent-line)
-  (set (make-local-variable 'fill-column) 72)
-  (set (make-local-variable 'comment-start-skip) "\\s<+\\s-*")
-  (set (make-local-variable 'comment-start) "% ")
-  (set (make-local-variable 'comment-end) "")
-  (set (make-local-variable 'font-lock-defaults)
-       '(Rd-font-lock-keywords nil nil))
-  ;; (set (make-local-variable 'parse-sexp-ignore-comments) t)
+  (setq-local indent-line-function 'Rd-mode-indent-line)
+  (setq fill-column 72)
+  (setq-local comment-start-skip "\\s<+\\s-*")
+  (setq-local comment-start "% ")
+  (setq-local comment-end "")
+  (setq font-lock-defaults
+        '(Rd-font-lock-keywords nil nil))
 
   ;; Here is a workaround for an Emacs bug related to indirect buffers and
   ;; spurious lockfiles that rears its ugly head with .Rd files
   ;; https://lists.gnu.org/archive/html/bug-gnu-emacs/2013-02/msg01368.html
   ;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=14328
-  (make-local-variable 'create-lockfiles)
-  (setq create-lockfiles nil)
+  (setq-local create-lockfiles nil)
 
-  (require 'easymenu)
   (easy-menu-define Rd-mode-menu-map Rd-mode-map
     "Menu keymap for Rd mode." Rd-mode-menu)
 
-  (turn-on-auto-fill)
-  (message "Rd mode version %s" essddr-version)
-  (setq ess-language "S" ess-dialect  "R"); (buffer local)
-  (run-mode-hooks 'Rd-mode-hook))
+  (turn-on-auto-fill))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.Rd\\'" . Rd-mode))
 
-;; FIXME: The following should be moved to ess-utils.el, no? (MM thinks)
-(defun ess-point (position)
-  "Return the value of point at a certain POSITION."
-  (save-excursion
-    (cond
-     ((eq position 'bol)  (beginning-of-line))
-     ((eq position 'eol)  (end-of-line))
-     ((eq position 'boi)  (back-to-indentation))
-     ((eq position 'bonl) (forward-line 1))
-     ((eq position 'bopl) (forward-line -1))
-     (t (error "Unknown buffer position requested: %s" position)))
-    (point)))
-
 (defun Rd-describe-major-mode ()
   "Describe the current major mode."
-  (interactive)
+  (declare (obsolete describe-mode "ESS 19.04"))
   (describe-function major-mode))
 
 (defun Rd-mode-in-verbatim-p ()
+  "Return non-nil if in a usage, examples, or synopsis."
   (let ((pos (point)))
     (save-excursion
       (if (and (re-search-backward
@@ -349,13 +285,13 @@ following lines to your `.emacs' file:
         nil))))
 
 (defun Rd-mode-in-preprocessor-line-p ()
+  "Return non-nil if in a preprocessor line."
   (save-excursion
     (beginning-of-line)
     (looking-at "[ \t]*#\\(ifdef\\|endif\\)")))
 
 (defun Rd-mode-calculate-indent ()
   "Return appropriate indentation for current line in Rd mode."
-  (interactive)
   (save-excursion
     (beginning-of-line)
     (cond
@@ -367,7 +303,7 @@ following lines to your `.emacs' file:
       0)
      (t
       (let ((p (progn
-                 (re-search-forward "[ \t]*\\s)*" (ess-point 'eol) t)
+                 (re-search-forward "[ \t]*\\s)*" (point-at-eol) t)
                  (point))))
         (if (or (< (forward-line -1) 0)
                 (Rd-mode-in-verbatim-p))
@@ -377,7 +313,7 @@ following lines to your `.emacs' file:
                           (Rd-mode-in-preprocessor-line-p))
                       (not (bobp)))
             (forward-line -1))
-          (re-search-forward "[ \t]*\\s)*" (ess-point 'eol) t)
+          (re-search-forward "[ \t]*\\s)*" (point-at-eol) t)
           (prog1
               (+ (current-indentation)
                  (* (car (parse-partial-sexp (point) p))
@@ -386,23 +322,23 @@ following lines to your `.emacs' file:
 
 (defun Rd-mode-indent-line ()
   "Indent current line as Rd source."
-  (interactive)
-  (let ((ic (Rd-mode-calculate-indent))
-        (rp (- (current-column) (current-indentation))))
-    (if ic                              ; Not inside a verbatim
-        (if (< ic 0)
-            (error "Unmatched parenthesis")
-          (indent-line-to ic)
-          (if (> rp 0)
-              (move-to-column (+ ic rp)))))))
+  (when-let ((ic (Rd-mode-calculate-indent))
+             (rp (- (current-column) (current-indentation))))
+    (when (< ic 0)
+      (error "Unmatched parenthesis"))
+    (indent-line-to ic)
+    (when (> rp 0)
+      (move-to-column (+ ic rp)))))
 
 (defun Rd-mode-insert-item ()
+  "Insert \\item{ on a newline."
   (interactive)
   (reindent-then-newline-and-indent)
   (insert "\\item{")
   )
 
 (defun Rd-mode-insert-section ()
+  "Insert a section from `Rd-section-names'."
   (interactive)
   (let ((s (ess-completing-read
             "Insert section: "
@@ -413,6 +349,7 @@ following lines to your `.emacs' file:
       (insert (format "\\%s{" s)))))
 
 (defun Rd-mode-insert-skeleton ()
+  "Insert several empty Rd fields."
   (interactive)
   ;; Hmm: in theory this should be kept in sync with prompt()
   ;; ---  maybe using prompt() [or promptClass()...] would be better anyway?!
@@ -473,14 +410,13 @@ WHAT determines the font to use, as specified by `Rd-font-list'."
            (insert before)
            (save-excursion
              (insert after))))))
-;;;###autoload
+
 (defun Rd-preview-help (&optional via-shell)
   "Preview the current Rd buffer contents as help.
-If optional VIA-SHELL is set, using `Rd-to-help-command'.
 If the current buffer is not associated with a file, create a
-temporary one in `temporary-file-directory'."
-  (interactive "P")
-  (require 'ess-help)
+temporary one in variable `temporary-file-directory'."
+  (declare (advertised-calling-convention () "ESS 19.04"))
+  (interactive "P")                     ; If optional VIA-SHELL is set, using `Rd-to-help-command'.
   (let ((file buffer-file-name)
         (pbuf (get-buffer-create "R Help Preview"))
         del-p)
@@ -506,12 +442,12 @@ temporary one in `temporary-file-directory'."
     ;; (ess--flush-help-into-current-buffer file "tools::Rd2txt(\"%s\")\n")
     ;; instead of all this :
     (ess-setq-vars-local ess-r-customize-alist)
+    ;; mostly cut'n'paste from ess--flush-help* (see FIXME(2)):
+    (ess-help-underline)
+    (ess--help-major-mode)
     ;; FIXME: Is this really needed?
     (setq ess-help-sec-regex ess-help-r-sec-regex
           ess-help-sec-keys-alist ess-help-r-sec-keys-alist)
-    ;; mostly cut'n'paste from ess--flush-help* (see FIXME(2)):
-    (ess-help-underline)
-    (ess-help-mode)
     (goto-char (point-min))
     (set-buffer-modified-p 'nil)
     (setq buffer-read-only t)
@@ -520,23 +456,8 @@ temporary one in `temporary-file-directory'."
     (unless (get-buffer-window pbuf 'visible)
       (display-buffer pbuf t))))
 
-;; Bug reporting
-(defun Rd-submit-bug-report ()
-  "Submit a bug report on Rd mode via mail."
-  (interactive)
-  (require 'reporter)
-  (and
-   (y-or-n-p "Do you want to submit a bug report? ")
-   (reporter-submit-bug-report
-    essddr-maintainer-address
-    (concat "Emacs version " emacs-version)
-    (list
-     'essddr-version
-     'Rd-indent-level))))
+(define-obsolete-function-alias 'Rd-submit-bug-report 'ess-submit-bug-report "2018-08-16")
 
-
-;; Legacy feature
-(provide 'essddr)
 (provide 'ess-rd)
 
 ;;; ess-rd.el ends here

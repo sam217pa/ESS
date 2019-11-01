@@ -1,4 +1,4 @@
-;;; ess-r-completion.el --- R completion
+;;; ess-r-completion.el --- R completion  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2015 A.J. Rossini, Richard M. Heiberger, Martin Maechler, Kurt
 ;;      Hornik, Rodney Sparapani, Stephen Eglen and Vitalie Spinu.
@@ -31,9 +31,11 @@
 ;;; ElDoc
 
 (require 'cl-lib)
-(require 'ess-utils)
 (require 'ess-inf)
 (require 'ess-help)
+
+(eval-when-compile
+  (require 'subr-x))
 
 (defvar ac-auto-start)
 (defvar ac-prefix)
@@ -42,11 +44,15 @@
 (declare-function company-begin-backend "company")
 (declare-function company-doc-buffer "company")
 
+(defcustom ess-R-argument-suffix " = "
+  "Suffix appended by `ac-source-R' and `ac-source-R-args' to candidates."
+  :group 'ess-R
+  :type 'string)
+
 (defun ess-r-eldoc-function ()
   "Return the doc string, or nil.
 If an ESS process is not associated with the buffer, do not try
 to look up any doc strings."
-  (interactive)
   (when (and eldoc-mode ess-can-eval-in-background)
     (let* ((proc (ess-get-next-available-process))
            (funname (and proc (or (and ess-eldoc-show-on-symbol ;; Aggressive completion
@@ -86,8 +92,7 @@ to look up any doc strings."
            ;; Subtract 1 from window width since will cause a wraparound and
            ;; resize of the echo area.
            (W (1- (- (window-width (minibuffer-window))
-                     (+ 2 (length funname)))))
-           newdoc)
+                     (+ 2 (length funname))))))
       (setq doc
             (if (or (<= (length doc) W)
                     (null ess-eldoc-abbreviation-style)
@@ -156,9 +161,9 @@ to look up any doc strings."
       nil)))
 
 (defun ess-complete-object-name ()
-  "Perform completion on `ess-language' object preceding point.
-Uses \\[ess-r-complete-object-name] when `ess-use-R-completion' is non-nil,
-or \\[ess-internal-complete-object-name] otherwise."
+  "Perform completion on object preceding point.
+Uses `ess-r-complete-object-name' when `ess-use-R-completion' is non-nil,
+and `ess-internal-complete-object-name' otherwise."
   (interactive)
   (if (ess-make-buffer-current)
       (if ess-use-R-completion
@@ -169,17 +174,7 @@ or \\[ess-internal-complete-object-name] otherwise."
       (message "No ESS process associated with current buffer")
       nil)))
 
-(defun ess-list-object-completions nil
-  "List all possible completions of the object name at point."
-  (interactive)
-  (ess-complete-object-name))
-
-(defun ess-complete-object-name-deprecated ()
-  "Gives a deprecated message."
-  (interactive)
-  (ess-complete-object-name)
-  (message "C-c TAB is deprecated, completions has been moved to [M-TAB] (aka C-M-i)")
-  (sit-for 2 t))
+(define-obsolete-function-alias 'ess-list-object-completions #'ess-complete-object-name "ESS 19.04")
 
 ;; This one is needed for R <= 2.6.x -- hence *not* obsoleting it
 (defun ess-internal-complete-object-name ()
@@ -196,7 +191,6 @@ This is done automatically (and transparently) if a directory is
 modified (S only!), so the most up-to-date list of object names is always
 available.  However attached dataframes are *not* updated, so this
 command may be necessary if you modify an attached dataframe."
-  (interactive)
   (ess-make-buffer-current)
   (if (memq (char-syntax (preceding-char)) '(?w ?_))
       (let* ((comint-completion-addsuffix nil)
@@ -254,9 +248,10 @@ token.  Needs version of R >= 2.7.0."
          (prefix (or prefix (buffer-substring start end)))
          ;; (opts1 (if no-args "op<-rc.options(args=FALSE)" ""))
          ;; (opts2 (if no-args "rc.options(op)" ""))
-         (call1 (format ".ess_get_completions(\"%s\", %d)"
+         (call1 (format ".ess_get_completions(\"%s\", %d, \"%s\")"
                         (ess-quote-special-chars prefix)
-                        (- end start)))
+                        (- end start)
+                        ess-R-argument-suffix))
          (cmd (if allow-3-dots
                   (concat call1 "\n")
                 (concat "local({ r <- " call1 "; r[r != '...='] })\n"))))
@@ -265,7 +260,6 @@ token.  Needs version of R >= 2.7.0."
 (defun ess-r-complete-object-name ()
   "Completion in R via R's completion utilities (formerly 'rcompgen').
 To be used instead of ESS' completion engine for R versions >= 2.7.0."
-  (interactive)
   (let ((possible-completions (ess-r-get-rcompletions))
         token-string)
     (when possible-completions
@@ -277,7 +271,7 @@ To be used instead of ESS' completion engine for R versions >= 2.7.0."
 
 (defvar ess--cached-sp-objects nil)
 
-(defun ess--get-cached-completions (prefix &optional point)
+(defun ess--get-cached-completions (prefix &optional _point)
   (if (string-match-p "[]:$@[]" prefix)
       ;; call proc for objects
       (cdr (ess-r-get-rcompletions nil nil prefix))
@@ -302,17 +296,11 @@ To be used instead of ESS' completion engine for R versions >= 2.7.0."
           ;; reread new package, but not rda, much faster and not needed anyways
           (process-put *proc* 'sp-for-ac-changed? nil)))
       (apply 'append
-             (cddar ess-sl-modtime-alist) ; .GlobalEnv
+             (cl-cddar ess-sl-modtime-alist) ; .GlobalEnv
              (mapcar 'cddr ess--cached-sp-objects)))))
 
 
 ;;; ARGUMENTS
-
-(define-obsolete-variable-alias 'ess-ac-R-argument-suffix 'ess-R-argument-suffix "15.3")
-(defcustom ess-R-argument-suffix " = "
-  "Suffix appended by `ac-source-R' and `ac-source-R-args' to candidates."
-  :group 'R
-  :type 'string)
 
 (defvar ess-r--funargs-pre-cache
   '(("plot"
@@ -348,7 +336,7 @@ To be used instead of ESS' completion engine for R versions >= 2.7.0."
           (setq sym (match-string 1 sym)))
         (with-current-buffer (process-buffer proc)
           (ess-with-current-buffer buf
-            (ess--flush-help-into-current-buffer sym nil t)))
+            (ess--flush-help-into-current-buffer sym nil)))
         (with-current-buffer buf
           (ess-help-underline)
           (goto-char (point-min))
@@ -415,66 +403,75 @@ To be used instead of ESS' completion engine for R versions >= 2.7.0."
     (require-match 'never)
     (doc-buffer (company-doc-buffer (ess-r-get-arg-help-string arg)))))
 
-(defvar-local ess-r--installed-packages-cache nil)
-
-(defun ess-r-installed-packages ()
-  "Return a list of currently installed R packages.
-The value is cached once per session and is not updated if new
-packages are installed."
-  (let ((proc (ess-get-next-available-process)))
-    (when proc
-      (with-current-buffer (process-buffer proc)
-        (or ess-r--installed-packages-cache
-            (setq ess-r--installed-packages-cache
-                  (ess-get-words-from-vector
-                   "print(unlist(lapply(.libPaths(), dir)), max=1e6)\n")))))))
-
-;; completion for library names -- only active within 'library(...)'
 (defun company-R-library (command &optional arg &rest ignored)
   (interactive (list 'interactive))
   (cl-case command
     (interactive (company-begin-backend 'company-R-library))
-    (prefix (and (member (car (ess--fn-name-start 'symbol))
+    (prefix (and (member (car (ess--fn-name-start))
                          '("library" "require"))
                  (let ((start (ess-symbol-start)))
                    (and start (buffer-substring start (point))))))
-    (candidates (all-completions arg (ess-r-installed-packages)))
+    (candidates (all-completions arg (ess-installed-packages)))
     (annotation "<pkg>")
     (duplicates nil)
     (sorted t)))
 
+;; FIXME: There's a lot of overlap between `ess-r-package-completion'
+;; and `company-R-library'. Can we merge them somehow?
+(defun ess-r-package-completion ()
+  "Return installed packages if in a call to library or require.
+Return format suitable for `completion-at-point-functions'."
+  (when (member (car (ess--fn-name-start))
+                '("library" "require"))
+    (list (ess-symbol-start)
+          (point)
+          (ess-installed-packages)
+          :annotation-function
+          (lambda (_) " <pkg>"))))
+
 
 ;;; AC SOURCES
 ;;; http://cx4a.org/software/auto-complete/index.html
+;; auto-complete is de-facto unmaintained, users should switch to `company-mode'.
 
 (defvar ac-source-R
   '((prefix     . ess-ac-start)
     ;; (requires   . 0) ::)
     (candidates . ess-ac-candidates)
-    ;; (action  . ess-ac-action-args) ;; interfere with ac-fallback mechanism on RET (which is extremely annoing in inferior buffers)
+    ;; (action  . ess-ac-action-args) ;; interfere with ac-fallback mechanism on RET (which is extremely annoying in inferior buffers)
     (document   . ess-ac-help))
   "Combined ad-completion source for R function arguments and R objects.")
+(make-obsolete-variable 'ac-source-R "Use company-mode instead" "ESS 19.04")
 
 (defun ess-ac-start ()
   (when (ess-process-live-p)
     (or (ess-arg-start)
         (ess-symbol-start))))
+(make-obsolete-variable 'ess-ac-start "Use company-mode instead" "ESS 19.04")
 
 (defun ess-ac-candidates ()
   "OBJECTS + ARGS."
-  (let ((args (ess-ac-args)))
+  (let ((args (with-no-warnings
+                ;; suppress obsolete warnings
+                (ess-ac-args))))
     ;; sort of intrusive but right
     (if (and ac-auto-start
              (< (length ac-prefix) ac-auto-start))
         args
       (if args
-          (append args (ess-ac-objects t))
-        (ess-ac-objects)))))
+          (append args (with-no-warnings
+                         ;; suppress obsolete warnings
+                         (ess-ac-objects t)))
+        (with-no-warnings
+          ;; suppress obsolete warnings
+          (ess-ac-objects))))))
+(make-obsolete-variable 'ess-ac-candidates "Use company-mode instead" "ESS 19.04")
 
 (defun ess-ac-help (sym)
   (if (string-match-p "= *\\'" sym)
       (ess-r-get-arg-help-string sym)
     (ess-r-get-object-help-string sym)))
+(make-obsolete-variable 'ess-ac-help "Use company-mode instead" "ESS 19.04")
 
 ;; OBJECTS
 (defvar  ac-source-R-objects
@@ -483,14 +480,16 @@ packages are installed."
     (candidates . ess-ac-objects)
     (document   . ess-r-get-object-help-string))
   "Auto-completion source for R objects.")
+(make-obsolete-variable 'ac-source-R-objects "Use company-mode instead" "ESS 19.04")
 
 (defun ess-ac-objects (&optional no-kill)
   "Get all cached objects."
- (let ((aprf ac-prefix))
-   (when (and aprf (ess-process-live-p))
-     (unless no-kill ;; workaround
-       (kill-local-variable 'ac-use-comphist))
-     (ess--get-cached-completions aprf ac-point))))
+  (declare (obsolete "Use company-mode instead" "ESS 19.04"))
+  (let ((aprf ac-prefix))
+    (when (and aprf (ess-process-live-p))
+      (unless no-kill ;; workaround
+        (kill-local-variable 'ac-use-comphist))
+      (ess--get-cached-completions aprf ac-point))))
 
 ;; ARGS
 (defvar  ac-source-R-args
@@ -500,21 +499,20 @@ packages are installed."
     ;; (action     . ess-ac-action-args)
     (document   . ess-r-get-arg-help-string))
   "Auto-completion source for R function arguments.")
+(make-obsolete-variable 'ac-source-R-args "Use company-mode instead" "ESS 19.04")
 
 (defun ess-ac-args ()
   "Get the args of the function when inside parentheses."
+  (declare (obsolete "Use company-mode-instead" "ESS 19.04"))
   (when  (and ess--fn-name-start-cache ;; set in a call to ess-arg-start
               (ess-process-live-p))
     (let ((args (nth 2 (ess-function-arguments (car ess--fn-name-start-cache)))))
       (if args
-          (set (make-local-variable 'ac-use-comphist) nil)
+          (setq-local ac-use-comphist nil)
         (kill-local-variable 'ac-use-comphist))
       (delete "..." args)
       (mapcar (lambda (a) (concat a ess-R-argument-suffix))
               args))))
-
-(defvar ess--ac-help-arg-command
-  "getArgHelp('%s','%s')")
 
 (provide 'ess-r-completion)
 
