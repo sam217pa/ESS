@@ -438,6 +438,48 @@ When called with prefix ARG asks for additional arguments."
      command (format "Running %s" fun) arg
      '("" (read-string "Arguments: ")))))
 
+;;;*;;; Bioconductor
+
+(defun ess-r-bioc-test-package (&optional arg)
+  (interactive)
+  (let* ((pkg (ess-r-package-project))
+         (dir (cdr pkg))
+         (pname (symbol-name (car pkg)))
+         (rdir (concat dir "/R/"))
+         (tests (concat dir "/tests/"))
+         (unitTests (concat dir "/inst/unitTests/"))
+         (testscript (concat rdir "test_" pname "_package.R"))
+         (testfile (concat tests pname "_unit_tests.R")))
+    (or (file-exists-p tests) (mkdir tests))
+    (or (file-exists-p unitTests) (mkdir unitTests))
+    (with-current-buffer (find-file-noselect testscript)
+      (or (search-forward ".test <- function" nil t)
+          (goto-char 0)
+          (insert (format ".test <- function() BiocGenerics:::testPackage(%s)"
+                          pname))))
+    (with-current-buffer (find-file-noselect testfile)
+      (or (search-forward (concat pname ":::.test()") nil t)
+          (goto-char 0)
+          (insert (format "require('%s') || stop('unable to load %s package')\n" pname pname)
+                  (format "%s:::.test()" pname))))
+
+    (ess-r-package-eval-linewise
+     "source('%s')\n" "Testing package" testfile)))
+
+;;;*;;; Documentation
+
+;; (defun ess-r-document-current-file ()
+;;   "Edit the documentation for the current file."
+;;   (interactive)
+;;   (let* ((pkg (cdr (ess-r-package-project)))
+;;          (man (concat pkg "/man"))
+;;          (docs (directory-files man t "Rd"))
+;;          (file (file-name-base (buffer-file-name)))
+;;          (file (replace-regexp-in-string "methods" "" file))
+;;          (file (replace-regexp-in-string "class" "" file))
+;;          (file (replace-regexp-in-string "-" "" file)))
+;;     (find-file (ess-completing-read "Documentation file: " docs))))
+
 
 ;;;*;;; Minor Mode
 

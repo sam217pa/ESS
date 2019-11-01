@@ -105,7 +105,7 @@
   row.names(d) <- paste('  ', var.names, sep='')
   d
   }
-}; cat('\n'); print(.rdired.objects(ls()))}\n"
+}; cat('\n'); print(.rdired.objects(ls(all.names=TRUE)))}\n"
   "Function to call within R to print information on objects.
 The last line of this string should be the instruction to call
 the function which prints the output for rdired.")
@@ -126,6 +126,7 @@ the function which prints the output for rdired.")
     (define-key ess-rdired-mode-map "v" 'ess-rdired-view)
     (define-key ess-rdired-mode-map "V" 'ess-rdired-View)
     (define-key ess-rdired-mode-map "p" 'ess-rdired-plot)
+    (define-key ess-rdired-mode-map "l" 'ess-rdired-length)
     (define-key ess-rdired-mode-map "s" 'ess-rdired-sort)
     (define-key ess-rdired-mode-map "r" 'ess-rdired-reverse)
     (define-key ess-rdired-mode-map "q" 'ess-rdired-quit)
@@ -179,7 +180,7 @@ for more information!"
 
     (ess-command ess-rdired-objects buff)
     (ess-setq-vars-local (symbol-value ess-local-customize-alist) buff)
-    
+
     (with-current-buffer buff
       (setq ess-local-process-name proc)
       (ess-rdired-mode)
@@ -201,7 +202,7 @@ for more information!"
                                         (point-max))
       (setq buffer-read-only t)
       )
-    
+
     (pop-to-buffer buff)
     ))
 
@@ -262,11 +263,21 @@ Like `ess-rdired-view', but the object gets its own buffer name."
     (ess-execute (ess-rdired-get objname)
      nil (concat "R view " objname ))))
 
-(defun ess-rdired-plot ()
-  "Plot the object on current line."
-  (interactive)
-  (let ((objname (ess-rdired-object)))
-    (ess-eval-linewise (format "plot(%s)" (ess-rdired-get objname)))))
+(defmacro ess-rdired-defun (cmd docstring)
+  (declare (indent defun) (doc-string 2))
+  (let ((gfun (intern (concat "ess-rdired-" cmd))))
+    `(progn
+       (defun ,gfun ()
+         ,docstring
+         (interactive)
+         (ess-eval-linewise
+          (format "%s(%s)" ,cmd (ess-rdired-get (ess-rdired-object))))))))
+
+(ess-rdired-defun "length"
+  "Get length of object on current line.")
+
+(ess-rdired-defun "plot"
+  "Plot the object on current line.")
 
 (defun ess-rdired-type ()
   "Run the mode() on command at point.
@@ -427,7 +438,7 @@ Rotate between the alternative sorting methods."
            (sort-numeric-fields 3 beg end))
           ((eq ess-rdired-sort-num 4)
            (sort-numeric-fields 4 beg end)))))
-           
+
 (defun ess-rdired-reverse ()
   "Reverse the current sort order."
   (interactive)
@@ -438,7 +449,7 @@ Rotate between the alternative sorting methods."
                (point)))
         (end (point-max)))
     (reverse-region beg end)))
-    
+
 (defun ess-rdired-next-line (arg)
   "Move down lines then position at object.
 Optional prefix ARG says how many lines to move; default is one line."
